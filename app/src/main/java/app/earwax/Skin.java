@@ -6,6 +6,7 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.Locale;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
@@ -47,7 +48,7 @@ final class Skin {
         } catch (Exception e) { throw new RuntimeException("skin " + n, e); }
     }
 
-    private static RectF rc(JSONObject j, String k) {
+    private static RectF rc(JSONObject j, String k) throws JSONException {
         JSONObject o = j.optJSONObject(k); if (o == null) return null;
         float x = (float) o.getDouble("x"), y = (float) o.getDouble("y");
         return new RectF(x, y, x + (float) o.getDouble("w"), y + (float) o.getDouble("h"));
