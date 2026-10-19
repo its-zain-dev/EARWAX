@@ -18,6 +18,7 @@ final class StageView extends View {
     private final Skin head, plate;
     private final Paint Q = new Paint(Paint.ANTI_ALIAS_FLAG), P = Skin.P;
     private final RectF pr;
+    private Bitmap bg;
     private final OverScroller sc;
     private final GestureDetector gd;
     private float s = 1, ox, oy, scroll;
@@ -34,6 +35,7 @@ final class StageView extends View {
         head = Skin.load(c, "head"); plate = Skin.load(c, "plate");
         pr = new RectF(plate.panel.left, plate.panel.top + PY, plate.panel.right, plate.panel.bottom + PY);
         sc = new OverScroller(c);
+        try (java.io.InputStream in = c.getAssets().open("skins/bg.jpg")) { bg = BitmapFactory.decodeStream(in); } catch (Exception ignored) { }
         gd = new GestureDetector(c, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onScroll(MotionEvent a, MotionEvent b, float dx, float dy) { scroll = clampScroll(scroll + dy / s); invalidate(); return true; }
             @Override public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) { sc.fling(0, (int) scroll, 0, (int) (-vy / s), 0, 0, 0, (int) maxScroll(), 0, 0); postInvalidateOnAnimation(); return true; }
@@ -52,7 +54,31 @@ final class StageView extends View {
     private float clampScroll(float v) { return Math.max(0, Math.min(maxScroll(), v)); }
 
     // ------------------------------------------------------------------ drawing
+    /** Light haze: slow drifting mist behind the hardware, a faint veil in front of it. */
+    private void fog(Canvas c, int w, int h) {
+        long t = System.currentTimeMillis();
+        for (int i = 0; i < 3; i++) {
+            float ph = t / 9000f + i * 2.1f, cx = w * (0.5f + 0.35f * (float) Math.sin(ph)), cy = h * (0.22f + 0.28f * i + 0.05f * (float) Math.cos(ph * 1.3f)), r = w * (0.75f + 0.15f * i);
+            Q.setStyle(Paint.Style.FILL); Q.setShader(new RadialGradient(cx, cy, r, 0x2499b8d8, 0x0099b8d8, Shader.TileMode.CLAMP)); c.drawRect(0, 0, w, h, Q);
+        }
+        Q.setShader(null);
+    }
+
+    private void mist(Canvas c, int w, int h) {
+        Q.setStyle(Paint.Style.FILL);
+        Q.setShader(new LinearGradient(0, h * 0.6f, 0, h, 0x00a8c4e0, 0x30a8c4e0, Shader.TileMode.CLAMP)); c.drawRect(0, h * 0.6f, w, h, Q);
+        Q.setShader(new LinearGradient(0, 0, 0, h * 0.12f, 0x28a8c4e0, 0x00a8c4e0, Shader.TileMode.CLAMP)); c.drawRect(0, 0, w, h * 0.12f, Q);
+        Q.setShader(null);
+    }
+
     @Override protected void onDraw(Canvas c) {
+        if (bg != null) c.drawBitmap(bg, null, new Rect(0, 0, getWidth(), getHeight()), P);
+        fog(c, getWidth(), getHeight());
+        c.save(); drawStage(c); c.restore();
+        mist(c, getWidth(), getHeight());
+    }
+
+    private void drawStage(Canvas c) {
         PlayerService sv = PlayerService.I; if (sv == null) return;
         Hud x = sv.hud();
         c.translate(ox, oy); c.scale(s, s);
@@ -66,11 +92,11 @@ final class StageView extends View {
             boolean on = (b.id.equals("list") && mode == 0) || (b.id.equals("eq") && mode == 1) || (b.id.equals("fx") && mode == 2)
                     || (b.id.equals("shuffle") && sv.shuffle()) || (b.id.equals("repeat") && sv.repeat() != 0)
                     || (b.id.equals("sleep") && sv.sleepMin > 0) || (b.id.equals("popup") && sv.pv != null);
-            boolean cone = b.r > 50;
-            Skin.glyph(c, b.id, b.cx, b.cy, b.r * (cone ? 0.8f : 1f), x.playing, cone ? Skin.LED : 0xff1a2a55);
+            boolean cone = "prev,play,next,list,eq,fx".contains(b.id);
+            Skin.glyph(c, b.id, b.cx, b.cy, b.r * (cone ? 1.0f : 0.62f), x.playing, cone ? Skin.LED : 0xff1a2a55);
             if (on || down == b) {
                 Q.setStyle(Paint.Style.STROKE); Q.setStrokeWidth(down == b ? 9 : 6); Q.setColor(down == b ? 0xffffffff : 0xcc7fe6ff);
-                c.drawCircle(b.cx, b.cy, b.r * (cone ? 0.86f : 1.05f), Q);
+                c.drawCircle(b.cx, b.cy, b.r * (cone ? 0.9f : 0.78f), Q);
             }
         }
     }
@@ -84,6 +110,7 @@ final class StageView extends View {
             int lit = (int) (x.bars[i] * 16);
             for (int k = 0; k < 16; k++) {
                 Q.setColor(k >= lit ? 0xff0e2218 : k < 9 ? 0xff3be37a : k < 13 ? 0xffe8e04a : 0xffff4a3a);
+                if (k < lit) { int gc = Q.getColor(); Q.setColor((gc & 0xffffff) | 0x38000000); c.drawRect(r.left + 24 + i * bw, bot - (k + 1) * seg - 2, r.left + 32 + (i + 1) * bw, bot - k * seg + 4, Q); Q.setColor(gc); }
                 c.drawRect(r.left + 28 + i * bw + 2, bot - (k + 1) * seg + 2, r.left + 28 + (i + 1) * bw - 2, bot - k * seg, Q);
             }
         }

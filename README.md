@@ -35,6 +35,7 @@ pip install numpy scipy pillow matplotlib
 cd tools
 python3 head.py 1080 ../app/src/main/assets/skins/head.png ../app/src/main/assets/skins/head.json
 python3 shapes.py ../app/src/main/assets/skins
+python3 bg.py ../app/src/main/assets/skins/bg.jpg
 python3 gen_layout.py      # notification layouts + icons
 python3 preview.py         # writes a preview PNG from the same assets/layouts the app uses
 ```

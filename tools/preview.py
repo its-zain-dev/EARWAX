@@ -44,7 +44,11 @@ def hud(img, js, strip=False, title='NIGHT DRIVE - SYNTHWAVE', artist='EARWAX DE
             a = math.radians(-135 + 270 * .8); d.line([b['cx'] + math.sin(a) * b['r'] * .28, b['cy'] - math.cos(a) * b['r'] * .28, b['cx'] + math.sin(a) * b['r'] * .78, b['cy'] - math.cos(a) * b['r'] * .78], fill='white', width=int(b['r'] * .12))
         else: glyph(d, b['id'], b['cx'], b['cy'], b['r'], 'white')
 def phone():
-    W, H = 1080, 2200; im = Image.new('RGBA', (W, H), (16, 20, 28, 255)); oy = 50
+    W, H = 1080, 2200; im = Image.open(f'{A}/bg.jpg').convert('RGBA').resize((W, H), Image.BICUBIC); oy = 50
+    from PIL import ImageFilter
+    fog = Image.new('RGBA', (W, H), (0, 0, 0, 0)); fd = ImageDraw.Draw(fog)
+    for i, (cx, cy, r) in enumerate([(380, 500, 700), (760, 1150, 760), (420, 1800, 820)]): fd.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(153, 184, 216, 36))
+    im.alpha_composite(fog.filter(ImageFilter.GaussianBlur(160)))
     head, hj = load('head'); plate, pj = load('plate')
     im.alpha_composite(plate, (0, 1050 + oy)); im.alpha_composite(head, (0, oy)); d = ImageDraw.Draw(im)
     r = hj['screen']; x0, y0 = r['x'], r['y'] + oy
@@ -66,8 +70,13 @@ def phone():
         if i == 2: d.rounded_rectangle([px0 + 16, y + 4, px0 + p['w'] - 16, y + 60], 14, fill=(30, 90, 60))
         d.text((px0 + 30, y + 32), '%03d' % (i + 1), font=F(28), fill=DIM, anchor='lm'); d.text((px0 + 118, y + 32), nm, font=F(32), fill=(255, 255, 255) if i == 2 else LED, anchor='lm'); d.text((px0 + p['w'] - 30, y + 32), '03:%02d' % (10 + i * 4), font=F(28), fill=DIM, anchor='rm')
     for b in hj['buttons']:
-        cone = b['r'] > 50; glyph(d, b['id'], b['cx'], b['cy'] + oy, b['r'] * (.8 if cone else 1), LED if cone else (26, 42, 85))
-        if b['id'] in ('list', 'shuffle'): d.ellipse([b['cx'] - b['r'] * .86, b['cy'] + oy - b['r'] * .86, b['cx'] + b['r'] * .86, b['cy'] + oy + b['r'] * .86], outline=(127, 230, 255), width=6)
+        cone = b['id'] in ('prev', 'play', 'next', 'list', 'eq', 'fx'); glyph(d, b['id'], b['cx'], b['cy'] + oy, b['r'] * (1.0 if cone else .62), LED if cone else (26, 42, 85))
+        if b['id'] in ('list', 'shuffle'): rr_ = b['r'] * (.9 if cone else .78); d.ellipse([b['cx'] - rr_, b['cy'] + oy - rr_, b['cx'] + rr_, b['cy'] + oy + rr_], outline=(127, 230, 255), width=6)
+    from PIL import ImageChops
+    bl = im.convert('RGB').filter(ImageFilter.GaussianBlur(9)); im = Image.blend(im.convert('RGB'), ImageChops.screen(im.convert('RGB'), bl), .35)
+    mist = Image.new('RGBA', (W, H), (0, 0, 0, 0)); md = ImageDraw.Draw(mist)
+    for y in range(int(H * .6), H): md.line([0, y, W, y], fill=(168, 196, 224, int(48 * (y - H * .6) / (H * .4))))
+    im = Image.alpha_composite(im.convert('RGBA'), mist)
     return im.convert('RGB')
 def popup(n, bg):
     s, j = load(n); hud(s, j); return s

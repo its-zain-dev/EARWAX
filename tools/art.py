@@ -68,3 +68,17 @@ def lcd_floor(shape, d_in, edge, top=(0.70, 0.82, 0.66), bot=(0.58, 0.72, 0.56))
     c = np.broadcast_to(c, (H, W, 3)).copy()
     ao = (0.62 + 0.38 * sstep(0, edge * 1.2, d_in))[..., None]
     return c * ao
+
+def nblur(rgb, a, sigma):
+    """Alpha-aware gaussian blur (no dark fringes at silhouette edges)."""
+    num = ndi.gaussian_filter(rgb * a[..., None], (sigma, sigma, 0)); den = ndi.gaussian_filter(a, sigma)[..., None]
+    return num / np.maximum(den, 1e-4)
+
+def finish(rgba, bloom=0.30, haze=0.10):
+    """Old-UI softness: bloom on highlights + a touch of soft focus, applied inside the silhouette only."""
+    rgb, a = rgba[..., :3].astype(np.float32), rgba[..., 3].astype(np.float32)
+    lum = rgb.mean(-1); hi = np.clip((lum - 0.74) / 0.26, 0, 1)[..., None] * rgb
+    glow = nblur(hi, a, 7) * 0.6 + nblur(hi, a, 18) * 0.4
+    soft = nblur(rgb, a, 2.2)
+    out = np.clip(rgb * (1 - haze) + soft * haze + glow * bloom, 0, 1)
+    return np.dstack([out * (a[..., None] > 0), a])

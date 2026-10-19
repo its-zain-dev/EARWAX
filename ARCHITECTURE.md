@@ -14,7 +14,7 @@ earwax/
 │  │  ├─ StageView      main screen: head + plate artwork, screen content, list / EQ / FX panels, all touch handling
 │  │  ├─ PopupView      floating shaped overlay window (WindowManager, TYPE_APPLICATION_OVERLAY)
 │  │  └─ Notif          builds the RemoteViews notification from the "strip" skin
-│  ├─ assets/skins/     head, plate, whale, orb, strip  (*.png artwork, *.json layouts)  <- generated
+│  ├─ assets/skins/     head, plate, whale, orb, strip (*.png + *.json) and bg.jpg (blurred backdrop)  <- generated
 │  └─ res/              notif_big.xml / notif_small.xml / icons  <- generated from strip.json
 └─ tools/               artwork + layout generators and the preview composer (Python)
 ```
@@ -52,3 +52,15 @@ StageView / PopupView ── call methods ──►┘ toggle(), next(), setPitc
 1. Add a build call in `tools/shapes.py` (mask + holes + buttons) and run it.
 2. Reference it in `PlayerService.cyclePopup()` (popups) or load it like `strip` in `Notif`.
 Button ids understood by the popup: `prev play next tool mode app close knob`.
+
+## Old-UI softness (blur + haze)
+* **Baked into the art** (`art.finish()`): bloom on highlights + a touch of soft focus inside every silhouette; LCD and dark-glass
+  recesses get a frosted gloss. Tune `bloom` / `haze` there.
+* **Backdrop** `bg.jpg` (made by `tools/bg.py`): blurred steel-blue gradient with a cyan glow behind the head and light grain.
+* **Runtime** (`StageView.fog()` / `mist()`): three slow-drifting radial mists behind the hardware and a faint veil at the top and bottom.
+  `Skin.text()` gives bright LCD text a soft glow (`setShadowLayer`), and the spectrum bars draw a faint halo.
+  Remove the `fog()` / `mist()` calls in `StageView.onDraw` if you want a crisp look.
+
+## Button sizing
+`head.json` stores the **touch radius** of each button (cones 65, pearls 56 design units, about 21 / 18 dp on a 1080-px phone),
+which is larger than the drawn dome so fingers hit it easily. Glyph and highlight sizes are scaled from it in `StageView.drawStage()`.

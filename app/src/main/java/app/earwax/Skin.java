@@ -62,7 +62,9 @@ final class Skin {
 
     // ---------------------------------------------------------------- text helpers
     static void text(Canvas c, String s, float x, float y, float size, int col, Paint.Align al) {
-        T.setTextSize(size); T.setColor(col); T.setTextAlign(al); c.drawText(s, x, y, T);
+        T.setTextSize(size); T.setColor(col); T.setTextAlign(al);
+        if (col == LED || col == 0xffffffff) T.setShadowLayer(size * 0.28f, 0, 0, (col & 0x00ffffff) | 0x99000000); else T.clearShadowLayer();   // soft LCD bloom
+        c.drawText(s, x, y, T);
     }
     static String fit(String s, float size, float max) {
         T.setTextSize(size); if (T.measureText(s) <= max) return s;

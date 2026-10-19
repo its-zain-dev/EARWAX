@@ -33,6 +33,8 @@ def build(name, W, H, mask, R, holes, buttons, extra, dome=0.35, nk=1.0):
         elif kind == 'dark': fl = lcd_floor((SH, SW), d_in, edge, (0.035, 0.075, 0.05), (0.02, 0.05, 0.035))
         elif kind == 'grill': fl = lcd_floor((SH, SW), d_in, edge, (0.18, 0.2, 0.22), (0.12, 0.13, 0.15))
         a = (m * sstep(edge * 0.8, edge, d_in))[..., None]; rgb = rgb * (1 - a) + fl * a
+        gl = np.clip(1 - (np.arange(SW)[None, :] + np.arange(SH)[:, None] * 1.3) / (SW + SH * 1.3) * 2.4, 0, 1) ** 1.5 * (0.13 if kind == 'dark' else 0.08)
+        rgb = np.clip(rgb + (gl * a[..., 0])[..., None], 0, 1)
     out = Image.fromarray((np.dstack([rgb, np.ones((SH, SW))]) * 255).astype(np.uint8), 'RGBA')
     for b in buttons:
         s = int(2 * b['r'] * SC); g = gel_button(s, b.get('hue', (0.12, 0.30, 0.86)))
@@ -41,7 +43,8 @@ def build(name, W, H, mask, R, holes, buttons, extra, dome=0.35, nk=1.0):
     pm = arr[..., :3] * arr[..., 3:4]; pm = np.dstack([pm, arr[..., 3]])
     pm = np.array(Image.fromarray((pm * 255).astype(np.uint8), 'RGBA').resize((W, H), Image.LANCZOS)).astype(np.float32) / 255
     a = pm[..., 3:4]; rgbo = np.where(a > 0.002, pm[..., :3] / np.maximum(a, 0.002), 0)
-    Image.fromarray((np.dstack([np.clip(rgbo, 0, 1), a]) * 255).astype(np.uint8), 'RGBA').save(f'{OUT}/{name}.png')
+    fin = finish(np.dstack([np.clip(rgbo, 0, 1), a[..., 0]]))
+    Image.fromarray((fin * 255).astype(np.uint8), 'RGBA').save(f'{OUT}/{name}.png')
     meta = dict(w=W, h=H, buttons=[{k: v for k, v in b.items() if k != 'hue'} for b in buttons]); meta.update(extra)
     json.dump(meta, open(f'{OUT}/{name}.json', 'w'))
 
@@ -49,7 +52,7 @@ def R_(x, y, w, h, r=24): return dict(x=x, y=y, w=w, h=h, r=r)
 
 # ---------- PLATE (main-screen body under the head) ----------
 W, H = 1080, 1050; SW, SH = W * SC, H * SC
-m = blobs(SW, SH, [(540, 90, 250, 130, 0), (320, 600, 310, 320, 0), (760, 600, 310, 320, 0), (540, 560, 400, 310, 0), (190, 400, 105, 190, 0), (890, 400, 105, 190, 0)])
+m = blobs(SW, SH, [(540, 70, 190, 150, 0), (540, 255, 430, 120, 0)]) | rr(SW, SH, 40, 180, 1000, 850, 240)
 panel = R_(115, 265, 850, 640, 64)
 grill = np.zeros((SH, SW), bool)
 for i in range(9): grill |= rr(SW, SH, 300 + i * 56, 950, 26, 56, 13)
