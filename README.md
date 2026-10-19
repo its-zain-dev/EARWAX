@@ -14,7 +14,7 @@ popup windows (whale, orb) and a sculpted notification strip. Pure Java, no Kotl
 1. Create a GitHub repo and upload this whole folder (or `git push`).
 2. Open the **Actions** tab, run **build-apk** (it also runs on every push).
 3. Download the `earwax-apk` artifact, unzip, install `app-release.apk`.
-
+OR. download the app https://github.com/its-zain-dev/EARWAX/actions/runs/39272001011/artifacts/12196091157
 First launch asks for: audio access, notifications, and (when you tap the `P` pearl) "display over other apps".
 
 ## Controls
