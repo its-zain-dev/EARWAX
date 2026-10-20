@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">EARWAX</string>
+    <string name="tagline">مشغّل موسيقى كروميّ ثلاثي الأبعاد</string>
+    <string name="channel_playback">التشغيل</string>
+    <string name="act_prev">السابق</string>
+    <string name="act_play">تشغيل</string>
+    <string name="act_pause">إيقاف مؤقت</string>
+    <string name="act_next">التالي</string>
+    <string name="act_popup">النافذة المنبثقة</string>
+    <string name="act_close">إغلاق</string>
+    <string name="dlg_ok">موافق</string>
+    <string name="dlg_cancel">إلغاء</string>
+    <string name="dlg_search_title">ابحث في موسيقاك</string>
+    <string name="dlg_radio_title">ابحث عن محطات راديو</string>
+    <string name="dlg_search_hint">العنوان أو الفنان أو الألبوم</string>
+    <string name="dlg_url_title">تشغيل رابط بث</string>
+    <string name="dlg_url_hint">http://… (mp3, aac, m3u8, pls)</string>
+    <string name="bad_link">تعذّر فتح الرابط</string>
+    <string name="tour_skip">تخطي</string>
+    <string name="tour_next">التالي</string>
+    <string name="tour_done">ابدأ</string>
+    <string name="tour_0">أهلاً بك في EARWAX\nالراس الكروميّ هو مشغّل الموسيقى. جولة سريعة (٣٠ ثانية) على الأزرار.</string>
+    <string name="tour_1">الأذن اليسرى\nالسابق، تشغيل/إيقاف، التالي. الأذنان تهتزّان مع الباس أثناء التشغيل.</string>
+    <string name="tour_2">الأذن اليمنى\nLST: مكتبتك. EQ: إيكولايزر ١٠ نطاقات. FX: النغمة، السرعة، الباس، الحدّة، الصوت، مؤقت النوم.</string>
+    <string name="tour_3">لآلئ الجبهة\nS خلط، R تكرار، Z مؤقت النوم، P النافذة المنبثقة العائمة.</string>
+    <string name="tour_4">الشاشة\nاسحب الشريط السفلي للتقديم. اسحب يمين/يسار للأغنية التالية أو السابقة. انقر مرتين للتشغيل/الإيقاف. القلب للمفضلة، وعلامة ؟ لإعادة هذه الجولة.</string>
+    <string name="tour_5">مكتبتك\nالتبويبات: ALL, ALBUMS, ARTISTS, FAVS, RECENT, RADIO. انقر للتشغيل، واضغط مطوّلاً للمفضلة. RADIO يبثّ محطات الإنترنت: ابحث أو الصق رابطاً بزر + URL.</string>
+    <string name="tour_6">النافذة المنبثقة\nاضغط P، اسحبها لأي مكان، قرّب أصابعك لتغيير الحجم، وحرّك إصبعك دائرياً حول الزر أو القرص لتغيير الصوت والباس والنغمة وغيرها. وفي الإشعار زر للنافذة أيضاً.</string>
+</resources>

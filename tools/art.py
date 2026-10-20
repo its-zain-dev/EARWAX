@@ -11,7 +11,7 @@ def env(r):
     sky = 0.30 + 0.55 * sstep(-0.05, 0.95, y)
     floor = 0.06 + 0.22 * sstep(-1.0, 0.0, y)
     lum = np.where(y > 0, sky, floor)
-    lum = lum + 0.55 * np.exp(-(y / 0.035) ** 2)                      # horizon line
+    lum = lum + 0.40 * np.exp(-(y / 0.050) ** 2)                      # horizon line (softer, fewer hair-thin glints)
     def box(x0, x1, y0, y1, v, s=0.07):
         return v * sstep(x0 - s, x0 + s, x) * (1 - sstep(x1 - s, x1 + s, x)) * sstep(y0 - s, y0 + s, y) * (1 - sstep(y1 - s, y1 + s, y)) * (z > 0.05)
     lum = lum + box(-0.95, -0.35, 0.25, 0.95, 0.95) + box(0.45, 0.85, -0.25, 0.55, 0.55) + box(-0.3, 0.3, 0.8, 1.1, 0.5)

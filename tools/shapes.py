@@ -1,9 +1,9 @@
 """Organic 3D-bevel skins (plate / whale / orb / strip). Height-field + chrome environment shading."""
-import numpy as np, json, sys
+import numpy as np, json, sys, os
 from PIL import Image, ImageDraw
 from scipy import ndimage as ndi
 from art import *
-OUT = sys.argv[1] if len(sys.argv) > 1 else '.'
+OUT = sys.argv[1] if len(sys.argv) > 1 else "."
 SC = 2  # supersample
 
 def blobs(W, H, items, thr=0.30):
@@ -19,9 +19,10 @@ def rr(W, H, x, y, w, h, r):
 def circ(W, H, cx, cy, r):
     Y, X = np.mgrid[0:H, 0:W]; return (X - cx * SC) ** 2 + (Y - cy * SC) ** 2 <= (r * SC) ** 2
 
-def build(name, W, H, mask, R, holes, buttons, extra, dome=0.35, nk=1.0):
+def build(name, W, H, mask, R, holes, buttons, extra, dome=0.35, nk=1.0, emboss=()):
     SW, SH = W * SC, H * SC
     h, _ = pillow_height(mask, R * SC, dome)
+    for em in emboss: h = h + 5 * SC * ndi.gaussian_filter(em.astype(np.float32), 1.2 * SC)
     floors = []
     for m, kind, depth, edge in holes:
         h, d_in = carve(h, m, depth * SC, edge * SC); floors.append((m, kind, d_in, edge * SC))
@@ -50,36 +51,60 @@ def build(name, W, H, mask, R, holes, buttons, extra, dome=0.35, nk=1.0):
 
 def R_(x, y, w, h, r=24): return dict(x=x, y=y, w=w, h=h, r=r)
 
-# ---------- PLATE (main-screen body under the head) ----------
-W, H = 1080, 1050; SW, SH = W * SC, H * SC
-m = blobs(SW, SH, [(540, 70, 190, 150, 0), (540, 255, 430, 120, 0)]) | rr(SW, SH, 40, 180, 1000, 850, 240)
-panel = R_(115, 265, 850, 640, 64)
-grill = np.zeros((SH, SW), bool)
-for i in range(9): grill |= rr(SW, SH, 300 + i * 56, 950, 26, 56, 13)
-build('plate', W, H, m, 70, [(rr(SW, SH, *[panel[k] for k in 'xywhr']), 'dark', 22, 30), (grill, 'grill', 10, 12)], [],
-      dict(panel=panel), dome=0.25)
 
-# ---------- WHALE popup (copy of the "ILLUSION" idea: organic body, LCD, gel buttons, blue knob, EQ strip) ----------
-W, H = 1000, 600; SW, SH = W * SC, H * SC
-m = blobs(SW, SH, [(300, 190, 300, 135, -.03), (520, 225, 215, 120, 0), (740, 205, 205, 95, -.14), (890, 115, 90, 60, -.6), (235, 395, 190, 120, .1), (400, 335, 200, 110, 0), (590, 450, 230, 60, -.05), (800, 425, 150, 50, -.1), (745, 305, 170, 80, -.1)])
-lcd = R_(95, 95, 380, 125, 30); info = R_(95, 242, 470, 52, 24); spec = R_(335, 425, 510, 50, 20)
-btn = [dict(id='prev', cx=605, cy=225, r=40), dict(id='play', cx=700, cy=185, r=52), dict(id='next', cx=800, cy=160, r=40), dict(id='tool', cx=665, cy=315, r=34),
-       dict(id='mode', cx=760, cy=290, r=34), dict(id='app', cx=850, cy=262, r=30), dict(id='close', cx=905, cy=120, r=28, hue=(0.75, 0.12, 0.12))]
-knob = dict(id='knob', cx=175, cy=440, r=68, hue=(0.10, 0.25, 0.9))
+def shift(items, dx, dy): return [(a + dx, b + dy) + tuple(rest) for (a, b, *rest) in items]
+def Rr(r, dx, dy): return dict(r, x=r['x'] + dx, y=r['y'] + dy)
+def Bt(bs, dx, dy): return [dict(b, cx=round(b['cx'] + dx, 1), cy=round(b['cy'] + dy, 1)) for b in bs]
+
+def text_mask(W, H, txt, x, y, size, anchor='la'):
+    from PIL import ImageFont
+    import matplotlib
+    fp = os.path.join(matplotlib.get_data_path(), 'fonts', 'ttf', 'DejaVuSans-Bold.ttf')
+    im = Image.new('L', (W, H), 0); ImageDraw.Draw(im).text((x * SC, y * SC), txt, font=ImageFont.truetype(fp, int(size * SC)), fill=255, anchor=anchor)
+    return np.array(im) > 127
+
+def shadow_pad(name, pad):
+    """Adds a soft drop shadow + room around the shape (so the popup never clips its own edge) and shifts the JSON by `pad`."""
+    im = Image.open(f'{OUT}/{name}.png').convert('RGBA'); w, h = im.size
+    a = np.array(im)[..., 3].astype(np.float32) / 255
+    big = Image.new('RGBA', (w + 2 * pad, h + 2 * pad), (0, 0, 0, 0))
+    sh = np.zeros((h + 2 * pad, w + 2 * pad), np.float32); sh[pad + 8:pad + 8 + h, pad:pad + w] = a
+    sh = ndi.gaussian_filter(sh, pad * 0.33) * 0.55
+    rim = np.zeros_like(sh); rim[pad:pad + h, pad:pad + w] = a; rim = ndi.gaussian_filter(rim, pad * 0.12) * 0.25      # tight contact shadow
+    sa = np.clip(sh + rim, 0, 0.8)
+    big = Image.fromarray(np.dstack([np.zeros((h + 2 * pad, w + 2 * pad, 3), np.uint8) + np.array([6, 10, 18], np.uint8), (sa * 255).astype(np.uint8)]), 'RGBA')
+    big.alpha_composite(im, (pad, pad)); big.save(f'{OUT}/{name}.png')
+    j = json.load(open(f'{OUT}/{name}.json')); j['w'] += 2 * pad; j['h'] += 2 * pad; j['pad'] = pad
+    for b in j['buttons']: b['cx'] = round(b['cx'] + pad, 1); b['cy'] = round(b['cy'] + pad, 1)
+    for k in ('lcd', 'info', 'spec'):
+        if k in j: j[k]['x'] += pad; j[k]['y'] += pad
+    if 'knob' in j: j['knob']['cx'] += pad; j['knob']['cy'] += pad
+    if 'dial' in j: j['dial']['cx'] += pad; j['dial']['cy'] += pad
+    json.dump(j, open(f'{OUT}/{name}.json', 'w'))
+
+# ---------- WHALE popup (organic body, LCD, gel buttons, blue rotary knob, EQ strip) ----------
+DX, DY = 36, 20
+W, H = 1000 + 2 * DX, 600 + 2 * DY; SW, SH = W * SC, H * SC
+items = shift([(300, 190, 300, 135, -.03), (520, 225, 215, 120, 0), (740, 205, 205, 95, -.14), (890, 115, 90, 60, -.6), (235, 395, 190, 120, .1), (205, 430, 150, 110, 0), (400, 335, 200, 110, 0), (590, 450, 230, 60, -.05), (800, 425, 150, 50, -.1), (745, 305, 170, 80, -.1)], DX, DY)
+m = blobs(SW, SH, items)
+lcd = Rr(R_(95, 95, 380, 125, 30), DX, DY); info = Rr(R_(95, 242, 470, 52, 24), DX, DY); spec = Rr(R_(335, 425, 510, 50, 20), DX, DY)
+btn = Bt([dict(id='prev', cx=605, cy=225, r=40), dict(id='play', cx=700, cy=185, r=52), dict(id='next', cx=800, cy=160, r=40), dict(id='tool', cx=665, cy=315, r=34),
+          dict(id='mode', cx=760, cy=290, r=34), dict(id='app', cx=850, cy=262, r=30), dict(id='close', cx=905, cy=120, r=28, hue=(0.75, 0.12, 0.12))], DX, DY)
+knob = dict(id='knob', cx=190 + DX, cy=432 + DY, r=74, hue=(0.10, 0.25, 0.9))
+logo = text_mask(SW, SH, 'EARWAX', 360 + DX, 322 + DY, 30, 'la')
 build('whale', W, H, m, 46, [(rr(SW, SH, *[lcd[k] for k in 'xywhr']), 'lcd', 14, 18), (rr(SW, SH, *[info[k] for k in 'xywhr']), 'lcd', 10, 14), (rr(SW, SH, *[spec[k] for k in 'xywhr']), 'dark', 10, 14)],
-      btn + [knob], dict(lcd=lcd, info=info, spec=spec, knob=knob))
+      btn + [knob], dict(lcd=lcd, info=info, spec=spec, knob=knob), emboss=[logo])
+shadow_pad('whale', 36)
 
-# ---------- ORB popup (round, K-Jofol "misery" idea) ----------
-W, H = 760, 760; SW, SH = W * SC, H * SC
-m = circ(SW, SH, 380, 380, 372); angs = [0, 60, 120, 180, 240, 300]; ids = ['play', 'next', 'tool', 'close', 'app', 'prev']
-btn = [dict(id=i, cx=round(380 + 292 * np.sin(np.radians(a)), 1), cy=round(380 - 292 * np.cos(np.radians(a)), 1), r=54 if i == 'play' else 42, **({'hue': (0.75, .12, .12)} if i == 'close' else {})) for a, i in zip(angs, ids)]
-lcd = R_(190, 190, 380, 380, 190)
-build('orb', W, H, m, 52, [(circ(SW, SH, 380, 380, 190), 'lcd', 16, 22)], btn, dict(lcd=lcd, info=R_(255, 468, 250, 36, 18), spec=R_(250, 510, 260, 40, 16)), dome=0.45)
-
-# ---------- STRIP (notification: wavy 3-D pod, staggered buttons) ----------
-W, H = 1080, 360; SW, SH = W * SC, H * SC
-m = blobs(SW, SH, [(195, 170, 170, 125, 0), (440, 160, 170, 120, 0), (650, 185, 160, 130, 0), (850, 175, 165, 130, 0), (955, 175, 90, 120, 0), (735, 240, 155, 95, 0), (320, 250, 200, 70, 0)])
-lcd = R_(70, 78, 470, 130, 28); info = R_(70, 228, 470, 56, 24)
-btn = [dict(id='prev', cx=610, cy=120, r=50), dict(id='play', cx=740, cy=205, r=66), dict(id='next', cx=880, cy=118, r=50), dict(id='app', cx=985, cy=235, r=36), dict(id='close', cx=995, cy=95, r=30, hue=(0.75, .12, .12))]
-build('strip', W, H, m, 44, [(rr(SW, SH, *[lcd[k] for k in 'xywhr']), 'lcd', 12, 16), (rr(SW, SH, *[info[k] for k in 'xywhr']), 'lcd', 9, 12)], btn, dict(lcd=lcd, info=info), dome=0.3)
+# ---------- ORB popup: LCD disc, rotary dial ring (270 deg, gap at the bottom), 3 transport buttons, 3 small ones ----------
+W, H = 720, 720; SW, SH = W * SC, H * SC
+m = circ(SW, SH, 360, 360, 352)
+Yg, Xg = np.mgrid[0:SH, 0:SW].astype(np.float32); rad = np.hypot(Xg / SC - 360, Yg / SC - 360); ang = np.degrees(np.arctan2(Xg / SC - 360, -(Yg / SC - 360)))   # 0 = up, clockwise +
+track = (rad > 292) & (rad < 338) & (np.abs(ang) <= 135)
+lcd = R_(218, 158, 284, 284, 142); info = R_(268, 312, 184, 30, 14); spec = R_(285, 380, 150, 36, 12)
+btn = [dict(id='prev', cx=262, cy=520, r=38), dict(id='play', cx=360, cy=540, r=52), dict(id='next', cx=458, cy=520, r=38),
+       dict(id='tool', cx=186, cy=372, r=30), dict(id='app', cx=534, cy=372, r=30), dict(id='close', cx=360, cy=118, r=24, hue=(0.75, .12, .12))]
+dial = dict(cx=360, cy=360, r0=292, r1=338, a0=-135, a1=135)
+build('orb', W, H, m, 50, [(circ(SW, SH, 360, 300, 142) & (Yg < 100000), 'lcd', 16, 22), (track, 'dark', 9, 12)], btn, dict(lcd=lcd, info=info, spec=spec, dial=dial), dome=0.42)
+shadow_pad('orb', 34)
 print('ok')

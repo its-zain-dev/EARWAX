@@ -64,3 +64,12 @@ Button ids understood by the popup: `prev play next tool mode app close knob`.
 ## Button sizing
 `head.json` stores the **touch radius** of each button (cones 65, pearls 56 design units, about 21 / 18 dp on a 1080-px phone),
 which is larger than the drawn dome so fingers hit it easily. Glyph and highlight sizes are scaled from it in `StageView.drawStage()`.
+
+
+## 2.0 notes
+* `StageView` draws one bust skin (`bust.png`, `ear_l.png`, `ear_r.png`, `bust.json`). Ears are separate bitmaps drawn with `drawBitmapMesh` so they can ripple.
+* `PopupView` (whale / orb) uses `Rotary` for finger-circling control and `ScaleGestureDetector` for resizing; it runs in a hardware-accelerated overlay window.
+* `Notif` uses `MediaStyleNotificationHelper.MediaStyle` (colorized chrome steel); `Art` frames the cover in chrome.
+* `Radio` queries radio-browser.info; `PlayerService.playList(list, idx, key)` makes the shown list the queue.
+* Head construction (tools/bust.py): face thirds hairline-brow-nose base-chin; ears in the middle third; mouth line 1/3 from nose base to chin; mouth width ~1.5x nose width; lower lip ~1.45x upper; jaw angle ~0.62 of cheekbone width. References: Loomis method and face-proportion guides (Proko, FineArtTutorials).
+* `tools/head.py`, `gen_layout.py` and the old plate/strip skins were removed (replaced by `bust.py`, `brand.py`).
