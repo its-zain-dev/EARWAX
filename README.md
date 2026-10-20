@@ -8,7 +8,7 @@ speaker pods that vibrate with the bass, the chest is the library / equalizer / 
 * **Ears vibrate** (travelling ripple + glow, driven by the bass).
 * **Popups**: whale (polished) and orb (redesigned, spectrum clipped inside the glass). Real rotary control: circle your finger around the knob / dial. Pinch to resize.
 * **Notification**: real media notification (Spotify-style layout) in chrome colours, with a **popup** button and a close button.
-* **Library sections**: ALL, ALBUMS, ARTISTS, FAVS, RECENT, RADIO + search. Long-press = favourite.
+* **Library sections**: ALL, ALBUMS, ARTISTS, FAVS, RECENT, RADIO + search. Long-press = favourite
 * **Streaming**: internet radio search (radio-browser.info) and any stream URL (mp3 / aac / HLS / m3u / pls); saved stations.
 * **First-launch tour** (English / Arabic), app icon, splash, wordmark, feature graphic (`branding/`).
 * Safe-area padding everywhere; text can no longer hide in rounded corners.
