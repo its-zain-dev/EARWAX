@@ -1,0 +1,32 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'app.earwax'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'app.earwax'
+        minSdk 26
+        targetSdk 34
+        resourceConfigurations += ['en', 'ar']      // ship only the languages we translate: smaller APK
+        versionCode 2
+        versionName '2.0'
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug      // installable out of the box; swap for your own key to publish
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}', 'DebugProbesKt.bin', 'kotlin-tooling-metadata.json', 'META-INF/*.version'] } }
+    lint { checkReleaseBuilds false; abortOnError false }
+}
+
+dependencies {
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'   // audio engine (decoders, gapless, pitch/speed via Sonic)
+    implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'  // .m3u8 radio / HLS streams
+    implementation 'androidx.media3:media3-session:1.4.1'     // lock-screen / Bluetooth / headset integration
+    implementation 'androidx.core:core:1.13.1'
+}

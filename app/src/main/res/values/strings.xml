@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">EARWAX</string>
+    <string name="tagline">Chrome 3-D music player</string>
+    <string name="channel_playback">Playback</string>
+    <string name="act_prev">Previous</string>
+    <string name="act_play">Play</string>
+    <string name="act_pause">Pause</string>
+    <string name="act_next">Next</string>
+    <string name="act_popup">Popup</string>
+    <string name="act_close">Close</string>
+    <string name="dlg_ok">OK</string>
+    <string name="dlg_cancel">Cancel</string>
+    <string name="dlg_search_title">Search your music</string>
+    <string name="dlg_radio_title">Search radio stations</string>
+    <string name="dlg_search_hint">Title, artist or album</string>
+    <string name="dlg_url_title">Play a stream URL</string>
+    <string name="dlg_url_hint">http://… (mp3, aac, m3u8, pls)</string>
+    <string name="bad_link">Could not open that link</string>
+    <string name="tour_skip">SKIP</string>
+    <string name="tour_next">NEXT</string>
+    <string name="tour_done">START</string>
+    <string name="tour_0">Welcome to EARWAX\nA chrome head is your music player. Take a 30-second tour of the buttons.</string>
+    <string name="tour_1">Left ear\nPrevious, Play / Pause and Next. The ears vibrate with the bass while music plays.</string>
+    <string name="tour_2">Right ear\nLST: your library. EQ: 10-band equalizer. FX: pitch, speed, bass, treble, volume, sleep timer.</string>
+    <string name="tour_3">Forehead pearls\nS shuffle, R repeat, Z sleep timer, P floating popup window.</string>
+    <string name="tour_4">The screen\nDrag the bottom bar to seek. Swipe left or right for next / previous. Double-tap to play / pause. Tap the heart to favourite, ? to replay this tour.</string>
+    <string name="tour_5">Your library\nTabs: ALL, ALBUMS, ARTISTS, FAVS, RECENT, RADIO. Tap to play, long-press to favourite. RADIO streams internet stations: search, or paste a URL with + URL.</string>
+    <string name="tour_6">Floating popup\nPress P, drag it anywhere, pinch to resize, and circle your finger around the knob or dial to change volume, bass, pitch and more. The notification has a popup button too.</string>
+</resources>
