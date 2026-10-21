@@ -29,7 +29,6 @@ final class Skin {
         for (int i = 0; i < 64; i++) { hsv[0] = 125 - 120 * (i / 63f); LUT[i] = Color.HSVToColor(hsv); }
     }
 
-<<<<<<< HEAD
     /**
      * The three paints above are shared by the main screen and the floating popups, which draw one after the other on the
      * main thread. Every draw pass starts by putting them back to a clean state, so a shader, tint, alpha or glow left over
@@ -43,9 +42,6 @@ final class Skin {
 
     Bitmap bmp, cone; int w, h;          // cone = one speaker-cone sprite (the app pumps it, six times)
     float coneW;                         // its size in design units
-=======
-    Bitmap bmp; int w, h;
->>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
     final RectF full = new RectF();
     final ArrayList<Btn> btns = new ArrayList<>();
     final ArrayList<Ear> ears = new ArrayList<>();
@@ -75,20 +71,13 @@ final class Skin {
                 e.r.set((float) o.getDouble("x"), (float) o.getDouble("y"), (float) (o.getDouble("x") + o.getDouble("w")), (float) (o.getDouble("y") + o.getDouble("h")));
                 e.bmp = decode(c, "skins/" + en + ".png", k); s.ears.add(e);
             }
-<<<<<<< HEAD
             JSONObject co = j.optJSONObject("cone");
             if (co != null) { s.coneW = (float) co.getDouble("w"); s.cone = decode(c, "skins/cone.png", k); }
-=======
->>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
             return s;
         } catch (Exception e) { throw new RuntimeException("skin " + n, e); }
     }
 
-<<<<<<< HEAD
     void release() { if (bmp != null) bmp.recycle(); if (cone != null) cone.recycle(); for (Ear e : ears) if (e.bmp != null) e.bmp.recycle(); bmp = null; cone = null; ears.clear(); }
-=======
-    void release() { if (bmp != null) bmp.recycle(); for (Ear e : ears) if (e.bmp != null) e.bmp.recycle(); bmp = null; ears.clear(); }
->>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
 
     private static String readAsset(Context c, String path) throws IOException {
         StringBuilder sb = new StringBuilder();

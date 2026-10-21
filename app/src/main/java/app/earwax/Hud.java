@@ -7,7 +7,6 @@ final class Hud {
     boolean playing, live, buffering, fav;
     final float[] bars = new float[32];
     float bass;        // 0..1 low-frequency energy: drives the ear vibration
-<<<<<<< HEAD
     final float[] env = new float[3];   // 0..1 beat-synchronous pulse of the low / mid / high band: drives the speaker cones
     private final float[] avg = {-90, -90, -90};
     private long last;
@@ -31,7 +30,4 @@ final class Hud {
         }
         bass = env[0];
     }
-=======
-    float toolNorm;    // 0..1 position of the selected tool (drives the dial / knob)
->>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
 }
