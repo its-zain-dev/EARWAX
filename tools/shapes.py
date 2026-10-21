@@ -19,6 +19,7 @@ def rr(W, H, x, y, w, h, r):
 def circ(W, H, cx, cy, r):
     Y, X = np.mgrid[0:H, 0:W]; return (X - cx * SC) ** 2 + (Y - cy * SC) ** 2 <= (r * SC) ** 2
 
+<<<<<<< HEAD
 def smooth_field(mask, sigma):
     """Signed distance of the silhouette, blurred. The blur rounds off the creases a plain distance transform has along the
     medial axis of narrow parts (they showed up as scratchy streaks on the whale's left / right edges) and irons out lumps in
@@ -36,6 +37,11 @@ def build(name, W, H, mask, R, holes, buttons, extra, dome=0.35, nk=1.0, emboss=
         h = edge_profile(d, R * SC) + dome * big
     else:
         h, _ = pillow_height(mask, R * SC, dome)
+=======
+def build(name, W, H, mask, R, holes, buttons, extra, dome=0.35, nk=1.0, emboss=()):
+    SW, SH = W * SC, H * SC
+    h, _ = pillow_height(mask, R * SC, dome)
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
     for em in emboss: h = h + 5 * SC * ndi.gaussian_filter(em.astype(np.float32), 1.2 * SC)
     floors = []
     for m, kind, depth, edge in holes:
@@ -54,7 +60,11 @@ def build(name, W, H, mask, R, holes, buttons, extra, dome=0.35, nk=1.0, emboss=
     for b in buttons:
         s = int(2 * b['r'] * SC); g = gel_button(s, b.get('hue', (0.12, 0.30, 0.86)))
         out.alpha_composite(Image.fromarray((g * 255).astype(np.uint8), 'RGBA'), (int(b['cx'] * SC - s / 2), int(b['cy'] * SC - s / 2)))
+<<<<<<< HEAD
     arr = np.array(out).astype(np.float32) / 255; arr[..., 3] = alpha
+=======
+    arr = np.array(out).astype(np.float32) / 255; arr[..., 3] = mask
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
     pm = arr[..., :3] * arr[..., 3:4]; pm = np.dstack([pm, arr[..., 3]])
     pm = np.array(Image.fromarray((pm * 255).astype(np.uint8), 'RGBA').resize((W, H), Image.LANCZOS)).astype(np.float32) / 255
     a = pm[..., 3:4]; rgbo = np.where(a > 0.002, pm[..., :3] / np.maximum(a, 0.002), 0)
@@ -107,7 +117,11 @@ btn = Bt([dict(id='prev', cx=605, cy=225, r=40), dict(id='play', cx=700, cy=185,
 knob = dict(id='knob', cx=190 + DX, cy=432 + DY, r=74, hue=(0.10, 0.25, 0.9))
 logo = text_mask(SW, SH, 'EARWAX', 360 + DX, 322 + DY, 30, 'la')
 build('whale', W, H, m, 46, [(rr(SW, SH, *[lcd[k] for k in 'xywhr']), 'lcd', 14, 18), (rr(SW, SH, *[info[k] for k in 'xywhr']), 'lcd', 10, 14), (rr(SW, SH, *[spec[k] for k in 'xywhr']), 'dark', 10, 14)],
+<<<<<<< HEAD
       btn + [knob], dict(lcd=lcd, info=info, spec=spec, knob=knob), emboss=[logo], smooth=30)
+=======
+      btn + [knob], dict(lcd=lcd, info=info, spec=spec, knob=knob), emboss=[logo])
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
 shadow_pad('whale', 36)
 
 # ---------- ORB popup: LCD disc, rotary dial ring (270 deg, gap at the bottom), 3 transport buttons, 3 small ones ----------

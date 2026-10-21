@@ -36,10 +36,14 @@ bust = Image.open(SK + '/bust.png').convert('RGBA'); J = json.load(open(SK + '/b
 comp = Image.new('RGBA', bust.size, (0, 0, 0, 0))
 for n in ('ear_l', 'ear_r'):
     e = Image.open(f'{SK}/{n}.png').convert('RGBA'); comp.alpha_composite(e, (int(round(J[n]['x'])), int(round(J[n]['y']))))
+<<<<<<< HEAD
 cone = Image.open(f'{SK}/cone.png').convert('RGBA'); cs = int(round(J['cone']['w'])); cone = cone.resize((cs, cs), Image.LANCZOS)
 for b in J['buttons']:
     if b['id'] in ('prev', 'play', 'next', 'list', 'eq', 'fx'): comp.alpha_composite(cone, (int(round(b['cx'] - cs / 2)), int(round(b['cy'] - cs / 2))))
 head_only = bust.copy(); head_only.paste((0, 0, 0, 0), (0, 1150, bust.width, bust.height))        # drop the chest
+=======
+head_only = bust.copy(); head_only.paste((0, 0, 0, 0), (0, 1120, bust.width, bust.height))        # drop the chest
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
 comp.alpha_composite(head_only)
 bb = comp.getbbox(); mark = comp.crop((bb[0] - 10, bb[1] - 10, bb[2] + 10, bb[3] + 10)); print('mark bbox', mark.size)
 

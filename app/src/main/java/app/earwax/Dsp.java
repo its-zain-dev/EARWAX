@@ -23,7 +23,10 @@ final class Dsp extends BaseAudioProcessor {
     volatile int ver = 1;
     volatile boolean want;                    // a visible screen needs the spectrum
     final float[] bars = new float[32];
+<<<<<<< HEAD
     final float[] band = new float[]{-90, -90, -90};   // low / mid / high level in dB (see fft)
+=======
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
 
     private int seen, rate = 44100, ch = 2, rp;
     private boolean anyAct;
@@ -126,6 +129,7 @@ final class Dsp extends BaseAudioProcessor {
             double db = 20 * Math.log10(s / (hi - lo) / 256 + 1e-9);
             bars[i] = (float) Math.max(Math.max(0, Math.min(1, (db + 80) / 56)), bars[i] * 0.86);
         }
+<<<<<<< HEAD
         // raw (un-clamped) level in dB of three bands: low 43-170 Hz, mid 0.5-2.5 kHz, high 4 kHz+. The bars above saturate on loud
         // music, so they cannot show the beat; these keep their full dynamic range for the speaker cones.
         band[0] = bandDb(1, 5); band[1] = bandDb(11, 59); band[2] = bandDb(95, 301);
@@ -134,5 +138,7 @@ final class Dsp extends BaseAudioProcessor {
     private float bandDb(int lo, int hi) {
         float s = 0; for (int k = lo; k < hi; k++) s += (float) Math.sqrt(re[k] * re[k] + im[k] * im[k]);
         return (float) (20 * Math.log10(s / (hi - lo) / 256 + 1e-9));
+=======
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
     }
 }

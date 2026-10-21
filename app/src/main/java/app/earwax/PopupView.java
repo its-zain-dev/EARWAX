@@ -75,7 +75,10 @@ final class PopupView extends View {
 
     @Override protected void onDraw(Canvas c) {
         if (sk.bmp == null) return;
+<<<<<<< HEAD
         Skin.resetPaints();
+=======
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
         float s = getWidth() / (float) sk.w; c.scale(s, s);
         sk.hud(c, sv.hud(), down, rotating);
     }

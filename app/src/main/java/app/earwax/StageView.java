@@ -32,6 +32,10 @@ final class StageView extends View {
     private static final float ROW = 64, TAB_H = 64, SUB_H = 56, PADX = 44, PADY = 34, DW = 1080, DH = 2100;
     private static final String[] TABS = {"ALL", "ALBUMS", "ARTISTS", "FAVS", "RECENT", "RADIO"};
     private static final String[] FX = {"PITCH", "SPEED", "BASS", "TREBLE", "VOLUME"};
+<<<<<<< HEAD
+=======
+    private static final int MESH = 8;
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
     private static final int[] TOUR = {R.string.tour_0, R.string.tour_1, R.string.tour_2, R.string.tour_3, R.string.tour_4, R.string.tour_5, R.string.tour_6};
 
     private static final class Row { String a = "", b = "", grp; Track t; int ti; boolean group; }
@@ -42,9 +46,17 @@ final class StageView extends View {
     private final RectF pr, pc, tmp = new RectF();
     private final OverScroller sc;
     private final GestureDetector gd;
+<<<<<<< HEAD
     private float shake;      // current ear-pod shake in design px (set by drawEars, also moves the cones' glyphs)
     private final Shader scrSh;
     private Bitmap bg, logo, bgBake;
+=======
+    private final float[] mesh = new float[(MESH + 1) * 2 * 2];
+    private final Shader scrSh;
+    private Bitmap bg, logo;
+    private final Shader[] fog = new Shader[3];
+    private Shader mistB, mistT;
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
     private float s = 1, ox, oy, scroll;
     private int insL, insT, insR, insB, w, h;
     private final long introT = System.currentTimeMillis();
@@ -120,7 +132,15 @@ final class StageView extends View {
 
     @Override protected void onSizeChanged(int nw, int nh, int ow, int oh) {
         w = nw; h = nh; layoutStage();
+<<<<<<< HEAD
         bakeBackdrop();
+=======
+        fog[0] = new RadialGradient(0, 0, w * 0.75f, 0x2499b8d8, 0x0099b8d8, Shader.TileMode.CLAMP);
+        fog[1] = new RadialGradient(0, 0, w * 0.90f, 0x2499b8d8, 0x0099b8d8, Shader.TileMode.CLAMP);
+        fog[2] = new RadialGradient(0, 0, w * 1.05f, 0x2499b8d8, 0x0099b8d8, Shader.TileMode.CLAMP);
+        mistB = new LinearGradient(0, h * 0.6f, 0, h, 0x00a8c4e0, 0x30a8c4e0, Shader.TileMode.CLAMP);
+        mistT = new LinearGradient(0, 0, 0, h * 0.12f, 0x28a8c4e0, 0x00a8c4e0, Shader.TileMode.CLAMP);
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
         if (tour >= 0) buildTour();
     }
 
@@ -195,14 +215,22 @@ final class StageView extends View {
     // ------------------------------------------------------------------ drawing
     @Override protected void onDraw(Canvas c) {
         long now = System.currentTimeMillis();
+<<<<<<< HEAD
         Skin.resetPaints(); Q.setShader(null); Q.setColorFilter(null); Q.setXfermode(null); Q.setAlpha(255); Q.clearShadowLayer(); Q.setStyle(Paint.Style.FILL);
         if (bgBake != null) { tmp.set(0, 0, w, h); c.drawBitmap(bgBake, null, tmp, P); }
         c.save(); drawStage(c, now); c.restore();
+=======
+        if (bg != null) { tmp.set(0, 0, w, h); c.drawBitmap(bg, null, tmp, P); }
+        fog(c, now);
+        c.save(); drawStage(c, now); c.restore();
+        Q.setStyle(Paint.Style.FILL); Q.setShader(mistB); c.drawRect(0, h * 0.6f, w, h, Q); Q.setShader(mistT); c.drawRect(0, 0, w, h * 0.12f, Q); Q.setShader(null);
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
         if (now - introT < 1800) drawIntro(c, now - introT);
         else if (!tourChecked) { tourChecked = true; if (!Prefs.tourSeen(getContext())) startTour(); }
         if (tour >= 0) drawTour(c);
     }
 
+<<<<<<< HEAD
     /**
      * Background + haze, drawn once into a half-size bitmap whenever the view is (re)sized. The haze used to drift with the clock
      * and was repainted at 4-30 fps depending on what was happening, so lights and colours visibly changed whenever a button was
@@ -244,6 +272,44 @@ final class StageView extends View {
             int band = coneBand(b.id); if (band < 0) continue;
             float half = head.coneW / 2 * (1f + 0.16f * (x.playing ? x.env[band] : 0f)), dx = b.cx < 540 ? -shake : shake;
             tmp.set(b.cx + dx - half, b.cy - half, b.cx + dx + half, b.cy + half); c.drawBitmap(head.cone, null, tmp, P);
+=======
+    /** Slow drifting haze behind the hardware. The shaders are built once; only the canvas moves. */
+    private void fog(Canvas c, long t) {
+        Q.setStyle(Paint.Style.FILL);
+        for (int i = 0; i < 3; i++) {
+            float ph = t / 9000f + i * 2.1f, cx = w * (0.5f + 0.35f * (float) Math.sin(ph)), cy = h * (0.22f + 0.28f * i + 0.05f * (float) Math.cos(ph * 1.3f)), r = w * (0.75f + 0.15f * i);
+            c.save(); c.translate(cx, cy); Q.setShader(fog[i]); c.drawCircle(0, 0, r, Q); c.restore();
+        }
+        Q.setShader(null);
+    }
+
+    private void drawIntro(Canvas c, long t) {
+        float a = t < 1000 ? 1f : 1f - (t - 1000) / 800f; if (a <= 0) return;
+        Q.setStyle(Paint.Style.FILL); Q.setColor(((int) (235 * a) << 24) | 0x0a0f18); c.drawRect(0, 0, w, h, Q);
+        if (logo != null) {
+            float lw = w * 0.74f, lh = lw * logo.getHeight() / logo.getWidth(), k = 0.94f + 0.06f * Math.min(1f, t / 700f);
+            P.setAlpha((int) (255 * a)); tmp.set(w / 2f - lw * k / 2, h * 0.42f - lh * k / 2, w / 2f + lw * k / 2, h * 0.42f + lh * k / 2); c.drawBitmap(logo, null, tmp, P); P.setAlpha(255);
+        }
+        tpUi.setColor(((int) (255 * a) << 24) | 0x9fb4cc); tpUi.setTextSize(dp(14)); tpUi.setTextAlign(Paint.Align.CENTER);
+        c.drawText(getContext().getString(R.string.tagline), w / 2f, h * 0.42f + dp(52), tpUi);
+    }
+
+    /** Ear pods: a tiny lateral ripple (a travelling wave along the pod) whose strength follows the bass. */
+    private static float earDx(boolean left, float y, float amp, float ph) { return (left ? -1 : 1) * amp * (float) Math.sin(ph + y * 0.02f); }
+
+    private void drawEars(Canvas c, Hud x, long now) {
+        float amp = x.playing ? 0.8f + 4.2f * x.bass : 0f, ph = now / 80f;
+        for (Skin.Ear e : head.ears) {
+            RectF r = e.r;
+            c.save();
+            if (amp > 0) { float k = 1f + 0.010f * x.bass, cx = r.centerX(), cy = r.centerY(); c.translate(cx, cy); c.scale(k, k); c.translate(-cx, -cy); }
+            for (int j = 0; j <= MESH; j++) {
+                float yy = r.top + r.height() * j / MESH, d = earDx(e.left, yy, amp, ph); int o = j * 4;
+                mesh[o] = r.left + d; mesh[o + 1] = yy; mesh[o + 2] = r.right + d; mesh[o + 3] = yy;
+            }
+            c.drawBitmapMesh(e.bmp, 1, MESH, mesh, 0, null, 0, P);
+            c.restore();
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
         }
     }
 
@@ -259,11 +325,16 @@ final class StageView extends View {
         c.save(); path.reset(); path.addRoundRect(pr.left + 5, pr.top + 5, pr.right - 5, pr.bottom - 5, 58, 58, Path.Direction.CW); c.clipPath(path);
         if (mode == 0) drawList(c, sv); else if (mode == 1) drawEq(c, sv); else drawFx(c, sv);
         c.restore();
+<<<<<<< HEAD
+=======
+        float amp = x.playing ? 0.8f + 4.2f * x.bass : 0f, ph = now / 80f;
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
         for (Skin.Btn b : head.btns) {
             boolean cone = b.id.equals("prev") || b.id.equals("play") || b.id.equals("next") || b.id.equals("list") || b.id.equals("eq") || b.id.equals("fx");
             boolean on = (b.id.equals("list") && mode == 0) || (b.id.equals("eq") && mode == 1) || (b.id.equals("fx") && mode == 2)
                     || (b.id.equals("shuffle") && sv.shuffle()) || (b.id.equals("repeat") && sv.repeat() != 0)
                     || (b.id.equals("sleep") && sv.sleepMin > 0) || (b.id.equals("popup") && sv.pv != null);
+<<<<<<< HEAD
             int band = coneBand(b.id); float e = band >= 0 && x.playing ? x.env[band] : 0f;
             float bx = cone ? b.cx + (b.cx < 540 ? -shake : shake) : b.cx, press = down == b ? 0.92f : 1f, cr = head.coneW / 2;
             if (cone && e > 0.05f) { Q.setStyle(Paint.Style.FILL); Q.setColor(((int) (55 * e) << 24) | 0x7fd8ff); c.drawCircle(bx, b.cy, cr * 0.95f, Q); }   // soft glow on the hit
@@ -271,6 +342,14 @@ final class StageView extends View {
             if (on || down == b) {
                 Q.setStyle(Paint.Style.STROKE); Q.setStrokeWidth(down == b ? 5 : 4); Q.setColor(down == b ? 0xaaffffff : 0xb07fe6ff);
                 c.drawCircle(bx, b.cy, cone ? cr * 1.08f : b.r * 0.78f, Q);
+=======
+            float bx = cone ? b.cx + earDx(b.cx < 540, b.cy, amp, ph) : b.cx, press = down == b ? 0.9f : 1f;
+            if (cone && x.playing && x.bass > 0.05f) { Q.setStyle(Paint.Style.FILL); Q.setColor(((int) (70 * x.bass) << 24) | 0x7fd8ff); c.drawCircle(bx, b.cy, b.r * 0.95f, Q); }   // cone glow on the beat
+            Skin.glyph(c, b.id, bx, b.cy, b.r * (cone ? 1.0f : 0.62f) * press, x.playing, cone ? Skin.LED : 0xff1a2a55);
+            if (on || down == b) {
+                Q.setStyle(Paint.Style.STROKE); Q.setStrokeWidth(down == b ? 9 : 6); Q.setColor(down == b ? 0xffffffff : 0xcc7fe6ff);
+                c.drawCircle(bx, b.cy, b.r * (cone ? 0.9f : 0.78f), Q);
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
             }
         }
     }

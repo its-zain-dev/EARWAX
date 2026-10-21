@@ -221,7 +221,12 @@ public final class PlayerService extends Service {
         x.playing = pl.getPlayWhenReady() && st != Player.STATE_ENDED && st != Player.STATE_IDLE;
         x.buffering = pl.getPlayWhenReady() && st == Player.STATE_BUFFERING; x.live = t != null && t.stream(); x.fav = fav(t);
         System.arraycopy(dsp.bars, 0, x.bars, 0, 32);
+<<<<<<< HEAD
         x.beat(dsp.band, x.playing);
+=======
+        float b = 0; for (int i = 0; i < 6; i++) b += x.bars[i];
+        x.bass = x.playing ? Math.min(1f, b / 6f * 1.5f) : 0f;
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
         x.tool = TOOLS[tool]; x.toolText = toolText(); x.toolNorm = toolNorm();
         return x;
     }

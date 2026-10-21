@@ -32,7 +32,11 @@ StageView / PopupView ── call methods ──►┘ toggle(), next(), setPitc
 
 ## Skins: one pipeline for every shape
 * **Artwork** is pre-rendered 3-D, like the skinned players of the 2000s, so it costs nothing at runtime:
+<<<<<<< HEAD
   * `tools/head.py` ray-marches a signed-distance-field head (chrome environment, ambient occlusion, ears attached on a sculpted root, four devil horns that double as buttons; the speaker cones are separate sprites in `cone.png`).
+=======
+  * `tools/head.py` ray-marches a signed-distance-field head (chrome environment, ambient occlusion, speaker cones, pearls).
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
   * `tools/shapes.py` turns organic metaball silhouettes into puffy chrome bodies via a height-field + environment lookup,
     carves LCD recesses, and drops glossy gel-sphere buttons into sockets.
   * `tools/art.py` is the shared lighting/shading library.
@@ -57,11 +61,20 @@ Button ids understood by the popup: `prev play next tool mode app close knob`.
 * **Baked into the art** (`art.finish()`): bloom on highlights + a touch of soft focus inside every silhouette; LCD and dark-glass
   recesses get a frosted gloss. Tune `bloom` / `haze` there.
 * **Backdrop** `bg.jpg` (made by `tools/bg.py`): blurred steel-blue gradient with a cyan glow behind the head and light grain.
+<<<<<<< HEAD
 * **Runtime** (`StageView.bakeBackdrop()`): the three radial mists and the veil at the top and bottom are painted once into a half-size bitmap when the view is sized. They are completely still, so lights and background colours never change when a button is pressed or a window is switched.
   `Skin.text()` gives bright LCD text a soft glow (`setShadowLayer`), and the spectrum bars draw a faint halo.
 
 ## Button sizing
 `head.json` stores the **touch radius** of each button (cones 54, horns 51 design units, about 21 / 18 dp on a 1080-px phone),
+=======
+* **Runtime** (`StageView.fog()` / `mist()`): three slow-drifting radial mists behind the hardware and a faint veil at the top and bottom.
+  `Skin.text()` gives bright LCD text a soft glow (`setShadowLayer`), and the spectrum bars draw a faint halo.
+  Remove the `fog()` / `mist()` calls in `StageView.onDraw` if you want a crisp look.
+
+## Button sizing
+`head.json` stores the **touch radius** of each button (cones 65, pearls 56 design units, about 21 / 18 dp on a 1080-px phone),
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
 which is larger than the drawn dome so fingers hit it easily. Glyph and highlight sizes are scaled from it in `StageView.drawStage()`.
 
 
@@ -72,6 +85,9 @@ which is larger than the drawn dome so fingers hit it easily. Glyph and highligh
 * `Radio` queries radio-browser.info; `PlayerService.playList(list, idx, key)` makes the shown list the queue.
 * Head construction (tools/bust.py): face thirds hairline-brow-nose base-chin; ears in the middle third; mouth line 1/3 from nose base to chin; mouth width ~1.5x nose width; lower lip ~1.45x upper; jaw angle ~0.62 of cheekbone width. References: Loomis method and face-proportion guides (Proko, FineArtTutorials).
 * `tools/head.py`, `gen_layout.py` and the old plate/strip skins were removed (replaced by `bust.py`, `brand.py`).
+<<<<<<< HEAD
 
 ## Ears
 `Dsp.fft()` keeps the raw dB level of a low / mid / high band; `Hud.beat()` turns it into a 0..1 pulse that rises on a hit above the band's own 1-second average (fast attack, 0.15 s release). `StageView.drawEars()` keeps the pods rigid (a 2 px shake on strong bass) and pumps each cone sprite with its band: bottom cone = low, middle = mid, top = high.
+=======
+>>>>>>> 4460531ec2b35e77ddd0b879a2aafe8e2800ba10
