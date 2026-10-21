@@ -204,6 +204,47 @@ final class StageView extends View {
     }
 
     /**
+    /** Draw the startup splash and fade it out over the initial stage. */
+    private void drawIntro(Canvas c, long t) {
+        float a = t < 1000 ? 1f : Math.max(0f, 1f - (t - 1000) / 800f);
+        if (a <= 0f) return;
+
+        Q.setStyle(Paint.Style.FILL);
+        Q.setShader(null);
+        Q.setColorFilter(null);
+        Q.setColor(Color.argb(Math.round(235f * a), 10, 15, 24));
+        c.drawRect(0, 0, w, h, Q);
+
+        if (logo != null && logo.getWidth() > 0) {
+            float lw = w * 0.74f;
+            float lh = lw * logo.getHeight() / logo.getWidth();
+            float k = 0.94f + 0.06f * Math.min(1f, t / 700f);
+
+            tmp.set(
+                w / 2f - lw * k / 2f,
+                h * 0.42f - lh * k / 2f,
+                w / 2f + lw * k / 2f,
+                h * 0.42f + lh * k / 2f
+            );
+
+            P.setShader(null);
+            P.setColorFilter(null);
+            P.setAlpha(Math.round(255f * a));
+            c.drawBitmap(logo, null, tmp, P);
+            P.setAlpha(255);
+        }
+
+        tpUi.setColor(Color.argb(Math.round(255f * a), 159, 180, 204));
+        tpUi.setTextSize(dp(14));
+        tpUi.setTextAlign(Paint.Align.CENTER);
+        c.drawText(
+            getContext().getString(R.string.tagline),
+            w / 2f,
+            h * 0.42f + dp(52),
+            tpUi
+        );
+    }
+
      * Background + haze, drawn once into a half-size bitmap whenever the view is (re)sized. The haze used to drift with the clock
      * and was repainted at 4-30 fps depending on what was happening, so lights and colours visibly changed whenever a button was
      * pressed or a window was switched. Now it is perfectly still, and it costs one bitmap draw per frame.
