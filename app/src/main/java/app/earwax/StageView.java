@@ -203,7 +203,6 @@ final class StageView extends View {
         if (tour >= 0) drawTour(c);
     }
 
-    /**
     /** Draw the startup splash and fade it out over the initial stage. */
     private void drawIntro(Canvas c, long t) {
         float a = t < 1000 ? 1f : Math.max(0f, 1f - (t - 1000) / 800f);
@@ -245,6 +244,7 @@ final class StageView extends View {
         );
     }
 
+    /**
      * Background + haze, drawn once into a half-size bitmap whenever the view is (re)sized. The haze used to drift with the clock
      * and was repainted at 4-30 fps depending on what was happening, so lights and colours visibly changed whenever a button was
      * pressed or a window was switched. Now it is perfectly still, and it costs one bitmap draw per frame.
