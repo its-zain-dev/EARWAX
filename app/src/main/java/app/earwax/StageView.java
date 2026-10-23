@@ -293,8 +293,8 @@ final class StageView extends View {
         c.translate(ox, oy); c.scale(s, s);
         if (sv == null) { c.drawBitmap(head.bmp, null, head.full, P); return; }
         Hud x = sv.hud();
-        drawEars(c, x, now);
         c.drawBitmap(head.bmp, null, head.full, P);
+        drawEars(c, x, now);
         drawScreen(c, x);
         if (sLib != sv.libVer || (tab == 3 && sFav != sv.favVer) || (tab == 4 && sRec != sv.recVer)) rebuild(sv, true);
         c.save(); path.reset(); path.addRoundRect(pr.left + 5, pr.top + 5, pr.right - 5, pr.bottom - 5, 58, 58, Path.Direction.CW); c.clipPath(path);
