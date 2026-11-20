@@ -2,7 +2,7 @@
 <resources>
     <style name="Theme.Earwax" parent="@android:style/Theme.DeviceDefault.NoActionBar">
         <item name="android:windowBackground">@drawable/splash_bg</item>
-        <item name="android:statusBarColor">#10141C</item>
-        <item name="android:navigationBarColor">#10141C</item>
+        <item name="android:statusBarColor">#050911</item>
+        <item name="android:navigationBarColor">#050911</item>
     </style>
 </resources>
