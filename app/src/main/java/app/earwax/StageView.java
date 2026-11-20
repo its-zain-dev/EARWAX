@@ -8,7 +8,6 @@ import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RadialGradient;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.os.Build;
@@ -26,14 +25,14 @@ import androidx.media3.common.util.UnstableApi;
 import java.io.InputStream;
 
 /**
- * EARWAX 4.0 Main Interactive Early-2000s 3D Liquid-Chrome Stage.
- *  - Pure-Python Raymarched 3D Liquid-Chrome Cyber-Bust (Head + Anatomical Neck + Sculpted Chest)
- *  - Real-time 2.5D GyroParallax depth layering (Backdrop / Bust / Ear Pods / Levitating Aqua Crown Orbs)
- *  - Beat-reactive Ear Speaker Pods with 3-band cone excursion & expanding acoustic shockwave rings
- *  - 4 Levitating Glossy Y2K Aqua-Chrome Glass Orbs (Shuffle, Repeat, Sleep, Floating Popups)
- *  - Curved Chrome-Glass Forehead Visor (VisorRenderer) with 4 live visualizers & 1-tap Synced Lyrics
- *  - 5-Mode Chest Console (YouTube Music + Library / 10-Band EQ / Studio FX + Reliability / Queue / Synced Lyrics)
- *  - Low-RAM & low-CPU optimized for weak devices so background music NEVER stutters or stops!
+ * EARWAX 4.5 Lightweight, Ultra-Crisp, Comfortable 3D Liquid-Chrome Stage.
+ *
+ * Optimized for buttery-smooth responsiveness & effortless daily comfort:
+ *  - Full-resolution 1080p Pure-Python raymarched 3D bust, ear pods, speaker cones & Aqua orbs
+ *  - Zero heavy blur shaders, zero per-frame gradient allocations, zero distracting screen wobble
+ *  - Event-driven idle loop (0% CPU when paused; clean 30fps only while playing or scrolling)
+ *  - Rock-solid static touch targets (buttons never bob or drift away from your finger)
+ *  - Tasteful, crisp beat-reactive speaker cone excursion & clean curved forehead visor
  */
 @UnstableApi
 final class StageView extends View implements PlayerService.Listener {
@@ -57,16 +56,13 @@ final class StageView extends View implements PlayerService.Listener {
     private final GestureDetector gd;
 
     private Bitmap bg, logo, mark, bgBake;
+    private Shader collarGrad;
+    private int collarTheme = -1;
     private float s = 1f, ox, oy;
     private int insL, insT, insR, insB, w, h;
     private final long introT = System.currentTimeMillis();
-    private boolean registered, tourChecked;
+    private boolean registered, tickScheduled;
     private int vizMode;
-
-    private static final int MAX_WAVES = 4;
-    private final float[] waveAge = new float[MAX_WAVES];
-    private float lastShock;
-    private long lastFrameMs;
 
     private Skin.Btn down;
     private boolean seeking, listTouch, hdrTap, swipe, moved;
@@ -83,22 +79,16 @@ final class StageView extends View implements PlayerService.Listener {
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
+            tickScheduled = false;
             invalidate();
-            PlayerService v = PlayerService.I;
-            boolean active = tour >= 0
-                    || (v != null && (v.pl.isPlaying() || v.pl.getPlaybackState() == androidx.media3.common.Player.STATE_BUFFERING))
-                    || !sc.isFinished()
-                    || System.currentTimeMillis() - introT < 1850
-                    || gyro.isEnabled();
-            // 30 FPS when active (butter smooth, low CPU on weak devices), 350ms when idle
-            postDelayed(this, active ? 33 : 350);
+            scheduleNextTickIfNeeded();
         }
     };
 
     StageView(Context c) {
         super(c);
-        // Cap decode resolution cleanly to save precious RAM on 1.8-2 GB devices while keeping retina clarity
-        int targetW = Math.min(820, c.getResources().getDisplayMetrics().widthPixels);
+        // Decode full crisp 1080p HD bust & ear pods without artificial downscaling!
+        int targetW = Math.min(1080, Math.max(960, c.getResources().getDisplayMetrics().widthPixels));
         head = Skin.load(c, "bust", targetW);
         console = new ConsoleRenderer(c, this, head.panel);
         gyro = new GyroParallax(c);
@@ -114,8 +104,6 @@ final class StageView extends View implements PlayerService.Listener {
         tpBody.setTypeface(Theme.TF_REGULAR);
         tpUi.setTypeface(Theme.TF_BOLD);
 
-        for (int i = 0; i < MAX_WAVES; i++) waveAge[i] = 2f;
-
         gd = new GestureDetector(c, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onScroll(MotionEvent a, MotionEvent b, float dx, float dy) {
@@ -129,7 +117,7 @@ final class StageView extends View implements PlayerService.Listener {
             public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
                 console.noteUserScroll();
                 sc.fling(0, (int) console.scroll, 0, (int) (-vy / s), 0, 0, 0, (int) console.maxScroll(), 0, 0);
-                postInvalidateOnAnimation();
+                wakeLoop();
                 return true;
             }
 
@@ -151,6 +139,29 @@ final class StageView extends View implements PlayerService.Listener {
 
     private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
 
+    private boolean needsActiveTicks() {
+        PlayerService v = PlayerService.I;
+        boolean playing = v != null && (v.pl.isPlaying()
+                || v.pl.getPlaybackState() == androidx.media3.common.Player.STATE_BUFFERING);
+        return playing
+                || !sc.isFinished()
+                || System.currentTimeMillis() - introT < 460
+                || gyro.isEnabled();
+    }
+
+    private void scheduleNextTickIfNeeded() {
+        if (!registered || tickScheduled) return;
+        if (needsActiveTicks()) {
+            tickScheduled = true;
+            postDelayed(tick, 33);
+        }
+    }
+
+    private void wakeLoop() {
+        postInvalidateOnAnimation();
+        scheduleNextTickIfNeeded();
+    }
+
     void setMode(int m) {
         if (m >= 0 && m <= 4) {
             console.mode = m;
@@ -158,7 +169,7 @@ final class StageView extends View implements PlayerService.Listener {
                 if (m == 4) PlayerService.I.loadLyricsForCurrent();
                 else console.rebuild(PlayerService.I, false);
             }
-            invalidate();
+            wakeLoop();
         }
     }
 
@@ -179,10 +190,11 @@ final class StageView extends View implements PlayerService.Listener {
             else PlayerService.I.removeListener(this);
         });
         removeCallbacks(tick);
-        if (on) post(tick);
+        tickScheduled = false;
+        if (on) wakeLoop();
     }
 
-    @Override public void onServiceUpdate() { postInvalidateOnAnimation(); }
+    @Override public void onServiceUpdate() { wakeLoop(); }
     @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); if (getWindowVisibility() == VISIBLE) watch(true); }
     @Override protected void onDetachedFromWindow() { watch(false); super.onDetachedFromWindow(); }
     @Override protected void onWindowVisibilityChanged(int v) { super.onWindowVisibilityChanged(v); watch(v == VISIBLE); }
@@ -235,8 +247,11 @@ final class StageView extends View implements PlayerService.Listener {
 
     private void bakeBackdrop() {
         if (bgBake != null) bgBake.recycle();
-        int bw = Math.max(1, w / 2), bh = Math.max(1, h / 2);
-        bgBake = Bitmap.createBitmap(bw, bh, Bitmap.Config.RGB_565);
+        if (w <= 0 || h <= 0) return;
+        // Full crisp ARGB_8888 static backdrop (zero banding, zero per-frame gradient cost!)
+        int bw = Math.min(w, 1080);
+        int bh = Math.max(1, Math.round(h * (bw / (float) w)));
+        bgBake = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
         Canvas k = new Canvas(bgBake);
         Paint f = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         if (bg != null) {
@@ -246,39 +261,29 @@ final class StageView extends View implements PlayerService.Listener {
             k.drawRect(0, 0, bw, bh, f);
             f.setShader(null);
         }
-        f.setShader(new RadialGradient(bw * 0.22f, bh * 0.24f, bw * 0.85f, 0x2a33d6ff, 0x0033d6ff, Shader.TileMode.CLAMP));
-        k.drawRect(0, 0, bw, bh, f);
-        f.setShader(new RadialGradient(bw * 0.82f, bh * 0.32f, bw * 0.78f, 0x246b78ff, 0x006b78ff, Shader.TileMode.CLAMP));
-        k.drawRect(0, 0, bw, bh, f);
     }
 
     // ------------------------------------------------------------------ Drawing
     @Override
     protected void onDraw(Canvas c) {
         long now = System.currentTimeMillis();
-        float dt = lastFrameMs == 0 ? 0.033f : Math.min(0.08f, (now - lastFrameMs) / 1000f);
-        lastFrameMs = now;
 
         Skin.resetPaints();
         Q.setShader(null); Q.setColorFilter(null); Q.setAlpha(255); Q.clearShadowLayer(); Q.setStyle(Paint.Style.FILL);
         S.setShader(null); S.setColorFilter(null); S.setAlpha(255); S.clearShadowLayer(); S.setStyle(Paint.Style.STROKE);
 
         if (bgBake != null && !bgBake.isRecycled()) {
-            float bgShiftX = -gyro.x * dp(10);
-            float bgShiftY = -gyro.y * dp(8);
-            tmp.set(-dp(12) + bgShiftX, -dp(10) + bgShiftY, w + dp(12) + bgShiftX, h + dp(10) + bgShiftY);
+            tmp.set(0, 0, w, h);
             c.drawBitmap(bgBake, null, tmp, P);
         }
 
         c.save();
-        drawStage(c, now, dt);
+        drawStage(c);
         c.restore();
 
-        if (now - introT < 1600) {
+        // Ultra-fast smooth 420ms launch fade (never blocks you!)
+        if (now - introT < 420) {
             drawIntro(c, now - introT);
-        } else if (!tourChecked) {
-            tourChecked = true;
-            if (!Prefs.tourSeen(getContext())) startTour();
         }
 
         if (tour >= 0) drawTour(c);
@@ -297,10 +302,10 @@ final class StageView extends View implements PlayerService.Listener {
         return "shuffle".equals(id) || "repeat".equals(id) || "sleep".equals(id) || "popup".equals(id);
     }
 
-    private void drawStage(Canvas c, long now, float dt) {
+    private void drawStage(Canvas c) {
         PlayerService sv = PlayerService.I;
-        float pxBust = gyro.x * 7f;
-        float pyBust = gyro.y * 5f;
+        float pxBust = gyro.isEnabled() ? gyro.x * 5f : 0f;
+        float pyBust = gyro.isEnabled() ? gyro.y * 4f : 0f;
 
         c.translate(ox, oy);
         c.scale(s, s);
@@ -311,56 +316,10 @@ final class StageView extends View implements PlayerService.Listener {
         }
         Hud x = sv.hud();
 
-        if (x.shock > 0.88f && lastShock <= 0.88f) {
-            for (int i = 0; i < MAX_WAVES; i++) {
-                if (waveAge[i] >= 1f) { waveAge[i] = 0f; break; }
-            }
-        }
-        lastShock = x.shock;
-        for (int i = 0; i < MAX_WAVES; i++) {
-            if (waveAge[i] < 1.2f) waveAge[i] += dt * 1.65f;
-        }
-
-        // A. Live Bass-Reactive Y2K Volumetric Studio Halo behind Bust
-        float haloR = 480f + 95f * x.bass;
-        Q.setShader(new RadialGradient(540f + pxBust * 1.4f, 520f + pyBust, haloR,
-                Theme.alpha(x.accentColor, (int) (46 + 52 * x.bass)),
-                0x00000000, Shader.TileMode.CLAMP));
-        c.drawCircle(540f + pxBust * 1.4f, 520f + pyBust, haloR, Q);
-        Q.setShader(null);
-
-        // B. Expanding Acoustic Shockwaves from Ear Speaker Pods
-        if (x.playing) {
-            for (int i = 0; i < MAX_WAVES; i++) {
-                float a = waveAge[i];
-                if (a >= 1f) continue;
-                float ease = 1f - (1f - a) * (1f - a);
-                int alpha = (int) ((1f - a) * (1f - a) * 145f);
-                S.setStrokeWidth(6f * (1f - a * 0.65f));
-                S.setColor(Theme.alpha(i % 2 == 0 ? Theme.primary() : Theme.secondary(), alpha));
-                for (Skin.Ear e : head.ears) {
-                    float ex = e.left ? e.r.left + 32f : e.r.right - 32f;
-                    float ey = e.r.centerY();
-                    float rr = 65f + ease * 210f;
-                    c.drawCircle(ex, ey, rr, S);
-                }
-            }
-        }
-
-        // C. Pure-Python Raymarched 3D Y2K Liquid-Chrome Bust
+        // A. Pure-Python HD Raymarched 3D Y2K Liquid-Chrome Bust (rock-solid, crisp, calm!)
         c.save();
-        c.translate(pxBust, pyBust);
+        if (pxBust != 0f || pyBust != 0f) c.translate(pxBust, pyBust);
         c.drawBitmap(head.bmp, null, head.full, P);
-
-        // Live 2.5D gyro-driven chrome specular shimmer gliding across cranium & shoulders
-        if (gyro.isEnabled() && (Math.abs(gyro.x) > 0.03f || Math.abs(gyro.y) > 0.03f)) {
-            float sx = 540f - gyro.x * 160f;
-            float sy = 250f - gyro.y * 65f;
-            Q.setStyle(Paint.Style.FILL);
-            Q.setShader(new RadialGradient(sx, sy, 230f, 0x26e8f8ff, 0x00000000, Shader.TileMode.CLAMP));
-            c.drawCircle(sx, sy, 230f, Q);
-            Q.setShader(null);
-        }
 
         // Forehead Curved Chrome-Glass Visor
         visor.draw(c, head.screen, x, sv.artRaw(), vizMode, console.mode == 4, gyro.x);
@@ -368,43 +327,38 @@ final class StageView extends View implements PlayerService.Listener {
         // Chest Obsidian-Glass Studio Console
         console.draw(c, sv, gyro);
 
-        // Collarbone Neon Progress Energy Strip tucked cleanly above Chest Console
+        // Collarbone Progress Strip tucked cleanly above Chest Console (cached gradient!)
         if (head.panel != null) {
             float ny = head.panel.top - 50f;
             float nx0 = 370f, nx1 = 710f;
-            float prog = (x.dur > 0 && !x.live) ? Math.max(0f, Math.min(1f, x.pos / (float) x.dur)) : (0.5f + 0.3f * x.bass);
+            if (collarGrad == null || collarTheme != Theme.index()) {
+                collarTheme = Theme.index();
+                collarGrad = Theme.accentGrad(nx0, ny, nx1, ny);
+            }
+            float prog = (x.dur > 0 && !x.live) ? Math.max(0f, Math.min(1f, x.pos / (float) x.dur)) : 0.5f;
             S.setStrokeCap(Paint.Cap.ROUND);
             S.setStrokeWidth(4.5f);
             S.setColor(0x3833d6ff);
             c.drawLine(nx0, ny, nx1, ny, S);
-            S.setShader(Theme.accentGrad(nx0, ny, nx1, ny));
-            Theme.applyGlow(S, 10f + 8f * x.bass, Theme.primary(), 185);
+            S.setShader(collarGrad);
             c.drawLine(nx0, ny, nx0 + (nx1 - nx0) * prog, ny, S);
             S.setShader(null);
-            S.clearShadowLayer();
         }
         c.restore();
 
-        // D. Sculpted 3D Liquid-Chrome Ear Speaker Pods
-        float earPx = gyro.x * 13f;
-        float earPy = gyro.y * 9f;
-        float shake = x.playing ? 3.2f * x.env[0] : 0f;
+        // B. Sculpted 3D Liquid-Chrome Ear Speaker Pods (subtle bass excursion only, zero wobble!)
+        float earPx = gyro.isEnabled() ? gyro.x * 8f : 0f;
+        float earPy = gyro.isEnabled() ? gyro.y * 6f : 0f;
+        float shake = x.playing ? 2.0f * x.env[0] : 0f;
         for (Skin.Ear e : head.ears) {
             float dx = earPx + (e.left ? -shake : shake);
             c.save();
             c.translate(dx, earPy);
-            if (x.playing && x.bass > 0.08f) {
-                Q.setShader(new RadialGradient(e.r.centerX(), e.r.centerY(), e.r.height() * 0.56f,
-                        Theme.alpha(e.left ? Theme.primary() : Theme.secondary(), (int) (75 * x.bass)),
-                        0x00000000, Shader.TileMode.CLAMP));
-                c.drawCircle(e.r.centerX(), e.r.centerY(), e.r.height() * 0.56f, Q);
-                Q.setShader(null);
-            }
             c.drawBitmap(e.bmp, null, e.r, P);
             c.restore();
         }
 
-        // E. Six Metallic Speaker Cone Drivers + Crisp Vector Controls
+        // C. Six Metallic Speaker Cone Drivers + Crisp Vector Controls
         for (Skin.Btn b : head.btns) {
             int band = coneBand(b.id);
             if (band < 0) continue;
@@ -413,7 +367,7 @@ final class StageView extends View implements PlayerService.Listener {
             float bx = b.cx + dx;
             float by = b.cy + earPy;
             float env = x.playing ? x.env[band] : 0f;
-            float press = (down == b) ? 0.90f : 1f;
+            float press = (down == b) ? 0.91f : 1f;
             boolean active = ("list".equals(b.id) && (console.mode == 0 || console.mode == 3 || console.mode == 4))
                     || ("eq".equals(b.id) && console.mode == 1)
                     || ("fx".equals(b.id) && console.mode == 2)
@@ -421,109 +375,82 @@ final class StageView extends View implements PlayerService.Listener {
 
             if (head.cone != null) {
                 float baseR = b.r * 0.88f;
-                float half = baseR * (1f + 0.16f * env) * press;
+                float half = baseR * (1f + 0.14f * env) * press;
                 tmp.set(bx - half, by - half, bx + half, by + half);
                 c.drawBitmap(head.cone, null, tmp, P);
             }
 
-            float ringR = b.r * (0.90f + 0.11f * env) * press;
-            if (active || env > 0.06f || down == b) {
+            float ringR = b.r * (0.90f + 0.08f * env) * press;
+            if (active || env > 0.12f || down == b) {
                 int rimCol = down == b ? 0xffffffff : (isLeft ? Theme.primary() : Theme.secondary());
-                S.setStrokeWidth(down == b ? 5.5f : (active ? 4.2f : 2.8f));
-                S.setColor(Theme.alpha(rimCol, down == b ? 245 : (active ? 225 : (int) (175 * env))));
-                Theme.applyGlow(S, 12f, rimCol, 190);
+                S.setStrokeWidth(down == b ? 5.0f : (active ? 3.8f : 2.4f));
+                S.setColor(Theme.alpha(rimCol, down == b ? 245 : (active ? 215 : (int) (130 * env))));
                 c.drawCircle(bx, by, ringR, S);
-                S.clearShadowLayer();
             }
 
             int glyphCol = (active || down == b) ? 0xffffffff : Theme.glow();
-            Skin.glyph(c, b.id, bx, by, b.r * (0.84f + 0.12f * env) * press, x.playing, glyphCol, x.repeat, true);
+            Skin.glyph(c, b.id, bx, by, b.r * (0.84f + 0.10f * env) * press, x.playing, glyphCol, x.repeat, false);
         }
 
-        // F. Four Levitating Early-2000s Aqua-Chrome Glass Crown Orbs
-        float orbPx = gyro.x * 19f;
-        float orbPy = gyro.y * 13f;
-        int orbIdx = 0;
+        // D. Four Rock-Solid Glossy Y2K Aqua-Chrome Crown Orbs (NO bobbing — effortless to tap!)
         for (Skin.Btn b : head.btns) {
             if (!isCrownOrb(b.id)) continue;
-            float bob = (float) Math.sin(now / 650.0 + orbIdx * 1.15) * 6.5f;
-            float bx = b.cx + orbPx;
-            float by = b.cy + orbPy + bob;
-            float press = (down == b) ? 0.88f : 1f;
+            float bx = b.cx + earPx;
+            float by = b.cy + earPy;
+            float press = (down == b) ? 0.90f : 1f;
             boolean on = ("shuffle".equals(b.id) && x.shuffle)
                     || ("repeat".equals(b.id) && x.repeat != 0)
                     || ("sleep".equals(b.id) && (sv.sleepMin > 0 || sv.sleepEndOfTrack))
                     || ("popup".equals(b.id) && sv.pv != null);
 
             float rr = b.r * 0.94f * press;
-
-            int auraCol = on ? Theme.primary() : Theme.secondary();
-            Q.setShader(new RadialGradient(bx, by, rr * 1.55f,
-                    Theme.alpha(auraCol, on ? 140 : 62), 0x00000000, Shader.TileMode.CLAMP));
-            c.drawCircle(bx, by, rr * 1.55f, Q);
-            Q.setShader(null);
-
             if (head.pearl != null) {
                 tmp.set(bx - rr, by - rr, bx + rr, by + rr);
                 c.drawBitmap(head.pearl, null, tmp, P);
-            } else {
-                Q.setShader(new RadialGradient(bx - rr * 0.3f, by - rr * 0.3f, rr * 1.25f,
-                        0xff6fe6ff, 0xff112548, Shader.TileMode.CLAMP));
-                c.drawCircle(bx, by, rr, Q);
-                Q.setShader(null);
             }
 
             if (on || down == b) {
-                S.setStrokeWidth(4.0f);
+                S.setStrokeWidth(3.8f);
                 S.setColor(down == b ? 0xffffffff : Theme.primary());
-                Theme.applyGlow(S, 14f, Theme.primary(), 220);
-                c.drawCircle(bx, by, rr * 0.96f, S);
-                S.clearShadowLayer();
+                c.drawCircle(bx, by, rr * 0.98f, S);
             }
 
-            Skin.glyph(c, b.id, bx, by, rr * 0.96f, x.playing, 0xffffffff, x.repeat, true);
+            Skin.glyph(c, b.id, bx, by, rr * 0.96f, x.playing, 0xffffffff, x.repeat, false);
 
             if ("sleep".equals(b.id) && (sv.sleepMin > 0 || sv.sleepEndOfTrack)) {
-                Skin.text(c, sv.sleepLabel(), bx, by + rr + 20f, 15f, Theme.primary(), Paint.Align.CENTER, Theme.TF_MONO, true);
+                Skin.text(c, sv.sleepLabel(), bx, by + rr + 20f, 15f, Theme.primary(), Paint.Align.CENTER, Theme.TF_MONO, false);
             }
-            orbIdx++;
         }
     }
 
     private void drawIntro(Canvas c, long t) {
-        float a = t < 850 ? 1f : Math.max(0f, 1f - (t - 850) / 750f);
+        float a = Math.max(0f, 1f - t / 420f);
         if (a <= 0f) return;
 
         Q.setStyle(Paint.Style.FILL);
         Q.setShader(null);
-        Q.setColor(Color.argb(Math.round(244f * a), 4, 8, 16));
+        Q.setColor(Color.argb(Math.round(235f * a), 4, 8, 16));
         c.drawRect(0, 0, w, h, Q);
 
-        float k = 0.92f + 0.08f * Math.min(1f, t / 600f);
         if (mark != null && mark.getWidth() > 0) {
-            float ms = Math.min(w * 0.44f, dp(170)) * k;
-            tmp.set(w / 2f - ms / 2f, h * 0.34f - ms / 2f, w / 2f + ms / 2f, h * 0.34f + ms / 2f);
+            float ms = Math.min(w * 0.38f, dp(148));
+            tmp.set(w / 2f - ms / 2f, h * 0.36f - ms / 2f, w / 2f + ms / 2f, h * 0.36f + ms / 2f);
             P.setAlpha(Math.round(255f * a));
             c.drawBitmap(mark, null, tmp, P);
             P.setAlpha(255);
         }
 
         if (logo != null && logo.getWidth() > 0) {
-            float lw = w * 0.72f * k;
+            float lw = w * 0.66f;
             float lh = lw * logo.getHeight() / logo.getWidth();
             tmp.set(w / 2f - lw / 2f, h * 0.52f - lh / 2f, w / 2f + lw / 2f, h * 0.52f + lh / 2f);
             P.setAlpha(Math.round(255f * a));
             c.drawBitmap(logo, null, tmp, P);
             P.setAlpha(255);
         }
-
-        tpUi.setColor(Theme.alpha(Theme.primary(), Math.round(235f * a)));
-        tpUi.setTextSize(dp(13));
-        tpUi.setTextAlign(Paint.Align.CENTER);
-        c.drawText(getContext().getString(R.string.tagline).toUpperCase(), w / 2f, h * 0.59f + dp(14), tpUi);
     }
 
-    // ------------------------------------------------------------------ Guided Tour
+    // ------------------------------------------------------------------ Guided Tour (Optional via [?] in Visor)
     private void startTour() { tour = 0; buildTour(); invalidate(); }
     private void endTour() { tour = -1; Prefs.tourSeen(getContext(), true); invalidate(); }
 
@@ -586,8 +513,7 @@ final class StageView extends View implements PlayerService.Listener {
         if (t != null) {
             S.setStyle(Paint.Style.STROKE);
             S.setStrokeWidth(dp(2.5f));
-            int pulse = (int) (145 + 110 * Math.sin(System.currentTimeMillis() / 220.0));
-            S.setColor(Theme.alpha(Theme.primary(), pulse));
+            S.setColor(Theme.primary());
             c.drawRoundRect(tmp, dp(24), dp(24), S);
         }
 
@@ -623,9 +549,8 @@ final class StageView extends View implements PlayerService.Listener {
         c.drawText(getContext().getString(R.string.tour_skip), skipBtn.centerX(), skipBtn.centerY() + dp(5), tpUi);
         c.drawText((tour + 1) + "/" + TOUR.length, bubble.centerX(), skipBtn.centerY() + dp(5), tpUi);
 
-        Q.setShader(Theme.aquaPillGrad(nextBtn.top, nextBtn.bottom, Theme.primary()));
+        Q.setColor(Theme.primary());
         c.drawRoundRect(nextBtn, dp(18), dp(18), Q);
-        Q.setShader(null);
         tpUi.setColor(0xff04101d);
         c.drawText(getContext().getString(tour == TOUR.length - 1 ? R.string.tour_done : R.string.tour_next),
                 nextBtn.centerX(), nextBtn.centerY() + dp(5), tpUi);
@@ -774,7 +699,7 @@ final class StageView extends View implements PlayerService.Listener {
         }
 
         if (listTouch) gd.onTouchEvent(e);
-        invalidate();
+        wakeLoop();
         return true;
     }
 }

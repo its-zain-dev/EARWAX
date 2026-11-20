@@ -30,10 +30,8 @@ import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
-import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -42,14 +40,11 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.MediaSession;
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -65,7 +60,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *  - Self-healing playback error & stall watchdog that recovers at the EXACT millisecond
  *  - Complete Queue + Position JSON snapshot restored IMMEDIATELY on service boot (always pick up where you left off!)
  *  - 100% Fixed Prev / Next song switching (guaranteed track advance + wrap-around + ForwardingPlayer for lockscreen/Bluetooth!)
- *  - Seamless YouTube Music streaming via ResolvingDataSource (earwax-yt:// -> cached/fresh InnerTube audio stream)
+ *  - Seamless YouTube Music streaming via YtDataSource (chunked HTTP Range earwax-yt:// -> offline or InnerTube)
  *    plus automatic background URL pre-fetching, Auto-Radio queueing, Offline downloads, & Live Synced Lyrics
  */
 @UnstableApi
@@ -145,6 +140,10 @@ public final class PlayerService extends Service {
     private int lastKnownIdx = 0;
     private long lastKnownPosMs = 0L;
     private long lastCheckpointMs = 0L;
+    private boolean currentTrackPlayed = false;
+    private int prematureRetryCount = 0;
+    private int activeTrackIdx = -1;
+    private long activeTrackPosMs = 0L;
     private final ArrayList<Integer> shuffleHistory = new ArrayList<>();
     private final Random rng = new Random();
     private ContentObserver mediaObserver;
@@ -221,13 +220,21 @@ public final class PlayerService extends Service {
             if (pl == null) return;
             long now = System.currentTimeMillis();
 
-            // 1. Track live position continuously so freeze recovery knows exact ms
+            // 1. Track live position continuously so freeze recovery & premature-skip guard know exact ms
             int st = pl.getPlaybackState();
             int curIdx = pl.getCurrentMediaItemIndex();
             if (curIdx >= 0 && curIdx < queue.size()) {
                 lastKnownIdx = curIdx;
+                activeTrackIdx = curIdx;
                 long pos = pl.getCurrentPosition();
-                if (pos > 0) lastKnownPosMs = pos;
+                if (pos > 0) {
+                    lastKnownPosMs = pos;
+                    activeTrackPosMs = pos;
+                }
+                if (pl.isPlaying() && pos >= 1200L) {
+                    currentTrackPlayed = true;
+                    prematureRetryCount = 0;
+                }
             }
 
             // 2. Self-healing stall watchdog (if phone froze and player dropped to IDLE while shouldBePlaying)
@@ -332,7 +339,7 @@ public final class PlayerService extends Service {
         dsp = new Dsp();
         restoreDspState();
 
-        // Build freeze-proof ExoPlayer with huge audio buffer & transparent YouTube Music ResolvingDataSource!
+        // Build freeze-proof ExoPlayer with fast-start buffer & chunked YouTube Music YtDataSource!
         DefaultRenderersFactory rf = new DefaultRenderersFactory(this) {
             @Override
             protected AudioSink buildAudioSink(Context c, boolean f32, boolean params) {
@@ -344,53 +351,26 @@ public final class PlayerService extends Service {
 
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                        60_000,   // minBufferMs: 60s buffered ahead -> survives long device freezes!
-                        180_000,  // maxBufferMs: up to 3 minutes buffered!
-                        1_200,    // fast initial start
-                        2_500)    // fast recovery after rebuffer
-                .setBackBuffer(30_000, true)
-                .setTargetBufferBytes(10 * 1024 * 1024)
+                        25_000,   // minBufferMs: 25s buffered ahead -> survives freezes without stalling slow links
+                        90_000,   // maxBufferMs: up to 90s buffered
+                        500,      // ultra-fast 0.5s initial audio start!
+                        1_500)    // snappy rebuffer recovery
+                .setBackBuffer(20_000, true)
+                .setTargetBufferBytes(8 * 1024 * 1024)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build();
 
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
                 .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(12_000)
-                .setReadTimeoutMs(20_000)
+                .setConnectTimeoutMs(8_000)
+                .setReadTimeoutMs(14_000)
                 .setUserAgent(YtMusic.UA_IOS);
 
         DefaultDataSource.Factory baseDataSource = new DefaultDataSource.Factory(this, httpFactory);
-
-        // Transparent earwax-yt://<videoId> resolver inside ExoPlayer's loader thread!
-        ResolvingDataSource.Factory resolvingFactory = new ResolvingDataSource.Factory(
-                baseDataSource,
-                dataSpec -> {
-                    Uri u = dataSpec.uri;
-                    if (u != null && "earwax-yt".equals(u.getScheme())) {
-                        String vid = u.getHost();
-                        if (vid == null || vid.isEmpty()) vid = u.getSchemeSpecificPart().replace("//", "");
-                        // 1. Check if downloaded offline first -> zero network!
-                        File offFile = Downloader.fileFor(PlayerService.this, vid);
-                        if (offFile != null && offFile.exists() && offFile.length() > 4096) {
-                            return dataSpec.buildUpon().setUri(Uri.fromFile(offFile)).build();
-                        }
-                        // 2. Resolve direct audio stream URL via multi-tier InnerTube!
-                        YtMusic.ResolvedStream rs = YtMusic.resolveAudioSync(vid, false);
-                        if (rs == null || rs.url == null || rs.url.isEmpty()) {
-                            throw new IOException("YouTube Music stream unavailable for " + vid);
-                        }
-                        Map<String, String> hdrs = new HashMap<>(dataSpec.httpRequestHeaders);
-                        hdrs.put("User-Agent", rs.userAgent);
-                        return dataSpec.buildUpon()
-                                .setUri(Uri.parse(rs.url))
-                                .setHttpRequestHeaders(hdrs)
-                                .build();
-                    }
-                    return dataSpec;
-                });
+        YtDataSource.Factory ytDataSourceFactory = new YtDataSource.Factory(this, baseDataSource);
 
         DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(this)
-                .setDataSourceFactory(resolvingFactory);
+                .setDataSourceFactory(ytDataSourceFactory);
 
         pl = new ExoPlayer.Builder(this, rf)
                 .setMediaSourceFactory(mediaSourceFactory)
@@ -417,12 +397,43 @@ public final class PlayerService extends Service {
 
             @Override
             public void onMediaItemTransition(MediaItem m, int reason) {
+                // Guard against YouTube Music premature auto-skip when a slow stream hasn't finished!
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+                        && shouldBePlaying
+                        && activeTrackIdx >= 0 && activeTrackIdx < queue.size()
+                        && activeTrackIdx != pl.getCurrentMediaItemIndex()) {
+                    Track prev = queue.get(activeTrackIdx);
+                    if (prev != null && prev.isYouTube() && !isOffline(prev)) {
+                        long expDur = prev.dur;
+                        boolean endedTooEarly = !currentTrackPlayed
+                                || (expDur > 15_000L && activeTrackPosMs < expDur - 10_000L);
+                        if (endedTooEarly && prematureRetryCount < 2) {
+                            prematureRetryCount++;
+                            YtMusic.invalidateCache(prev.ytId);
+                            err = "BUFFERING STREAM (" + prematureRetryCount + "/2)...";
+                            notifyListeners();
+                            final int retryIdx = activeTrackIdx;
+                            final long retryPos = Math.max(0L, activeTrackPosMs);
+                            h.post(() -> {
+                                if (pl == null || !shouldBePlaying || retryIdx >= queue.size()) return;
+                                pl.seekTo(retryIdx, retryPos);
+                                pl.prepare();
+                                pl.play();
+                            });
+                            return;
+                        }
+                    }
+                }
                 if (sleepEndOfTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                     sleepEndOfTrack = false;
                     sleepMin = 0;
                     pauseInternal(false);
                 }
                 recoveryAttempts = 0;
+                prematureRetryCount = 0;
+                currentTrackPlayed = false;
+                activeTrackIdx = pl.getCurrentMediaItemIndex();
+                activeTrackPosMs = 0L;
                 err = "";
                 onTrackChanged();
                 notifyListeners();
@@ -439,6 +450,10 @@ public final class PlayerService extends Service {
                 if (playing) {
                     recoveryAttempts = 0;
                     err = "";
+                    if (pl.getCurrentPosition() >= 1000L) {
+                        currentTrackPlayed = true;
+                        prematureRetryCount = 0;
+                    }
                     acquireLocks();
                     if (sleepEndMs == 0) {
                         fadeScale = 1f;
@@ -454,8 +469,27 @@ public final class PlayerService extends Service {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_ENDED && shouldBePlaying && !queue.isEmpty()) {
-                    // Never stop dead at end of playlist if repeat-all or auto-radio can continue!
                     Track t = current();
+                    // Never assume a slow YT Music song finished if it barely started!
+                    if (t != null && t.isYouTube() && !isOffline(t) && prematureRetryCount < 2) {
+                        long expDur = t.dur > 0 ? t.dur : pl.getDuration();
+                        long curPos = Math.max(activeTrackPosMs, pl.getCurrentPosition());
+                        if (!currentTrackPlayed || (expDur > 15_000L && curPos < expDur - 10_000L)) {
+                            prematureRetryCount++;
+                            YtMusic.invalidateCache(t.ytId);
+                            err = "RECONNECTING STREAM...";
+                            notifyListeners();
+                            final int idx = Math.max(0, pl.getCurrentMediaItemIndex());
+                            final long pos = Math.max(0L, curPos);
+                            h.postDelayed(() -> {
+                                if (pl == null || !shouldBePlaying || idx >= queue.size()) return;
+                                pl.seekTo(idx, pos);
+                                pl.prepare();
+                                pl.play();
+                            }, 700L);
+                            return;
+                        }
+                    }
                     if (t != null && t.isYouTube() && ytAutoRadio) {
                         appendYtAutoRadioAndAdvance(t);
                     } else if (pl.getRepeatMode() == Player.REPEAT_MODE_ALL && queue.size() > 1) {
@@ -472,22 +506,20 @@ public final class PlayerService extends Service {
             @Override
             public void onPlayerError(PlaybackException e) {
                 Track t = current();
-                // If YouTube URL expired (HTTP 403/410) or network blipped, invalidate cache & retry at EXACT position!
                 if (t != null && t.isYouTube()) {
                     YtMusic.invalidateCache(t.ytId);
                 }
-                if (shouldBePlaying && recoveryAttempts < 5) {
+                if (shouldBePlaying && recoveryAttempts < 4) {
                     recoveryAttempts++;
-                    long delay = recoveryAttempts * 1400L;
+                    long delay = recoveryAttempts * 750L;
                     err = (t != null && t.isYouTube())
-                            ? ("REFRESHING STREAM (" + recoveryAttempts + "/5)...")
-                            : ("RECOVERING (" + recoveryAttempts + "/5)...");
+                            ? ("LOADING STREAM (" + recoveryAttempts + "/4)...")
+                            : ("RECOVERING (" + recoveryAttempts + "/4)...");
                     notifyListeners();
                     h.removeCallbacks(recoveryTask);
                     h.postDelayed(recoveryTask, delay);
                     return;
                 }
-                // Exhausted retries on current item: smoothly advance if more songs exist!
                 recoveryAttempts = 0;
                 if (t != null && !t.isRadio() && queue.size() > 1) {
                     err = "SKIPPING UNPLAYABLE TRACK";
@@ -822,6 +854,10 @@ public final class PlayerService extends Service {
         queueVer++;
         lastKnownIdx = idx;
         lastKnownPosMs = 0L;
+        activeTrackIdx = idx;
+        activeTrackPosMs = 0L;
+        currentTrackPlayed = false;
+        prematureRetryCount = 0;
 
         pl.setMediaItems(items(queue), idx, 0L);
         pl.prepare();
@@ -1221,9 +1257,13 @@ public final class PlayerService extends Service {
         targetIdx = ((targetIdx % queue.size()) + queue.size()) % queue.size();
         err = "";
         recoveryAttempts = 0;
+        prematureRetryCount = 0;
+        currentTrackPlayed = false;
         h.removeCallbacks(recoveryTask);
         lastKnownIdx = targetIdx;
         lastKnownPosMs = 0L;
+        activeTrackIdx = targetIdx;
+        activeTrackPosMs = 0L;
 
         // Smooth 55ms PCM cosine micro-crossfade inside Dsp -> ZERO pops or clicks!
         dsp.triggerSmoothSwitch();
@@ -1404,6 +1444,11 @@ public final class PlayerService extends Service {
         dsp.touch();
         scheduleSaveDsp();
         notifyListeners();
+    }
+
+    void cyclePreset() {
+        int next = (presetIdx < 0) ? 0 : ((presetIdx + 1) % PRESET_NAMES.length);
+        preset(next);
     }
 
     void resetEq() {

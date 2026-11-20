@@ -21,33 +21,24 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * EARWAX 4.0 Early-2000s Glossy Chrome-Glass Chest Console Renderer & Controller.
+ * EARWAX 4.5 Comfortable, Lightweight Chrome-Glass Chest Console Renderer & Controller.
  *
- * 5 Rich Studio Modes:
- *  - Mode 0: UNIFIED HUB — 7 Tabs:
- *      0 = YT (YouTube Music Search + 8 Mood Discovery + Search History + Auto-Radio + 1-Tap Offline Download!)
- *      1 = SONGS (Local Device Library + Multi-Sort + Instant Filter)
- *      2 = BROWSE (Albums / Artists / Folders drill-down)
- *      3 = OFFLINE (Downloaded YouTube Music tracks for zero-data, freeze-proof offline play!)
- *      4 = FAVS (Unified Local + YouTube Music Favorites)
- *      5 = LISTS (Custom Mixed Local+YTM Playlists + Recently Played)
- *      6 = RADIO (Live Internet Radio + 8 Genres + Curated + Custom URL)
- *  - Mode 1: 10-BAND PARAMETRIC EQ (Live Cubic Bézier Curve + 11 Machined Chrome Faders + 12 Presets)
- *  - Mode 2: STUDIO FX & RELIABILITY (Pitch/Speed/Bass/Treble/3D Width/Vol + Reverb/Limiter/Chan/XFade/Sleep
- *            + NO-STOP Ignore-Focus + YT Auto-Radio + Battery Keep-Alive Whitelist + 5 Live Themes + 3D Tilt)
- *  - Mode 3: UP-NEXT QUEUE (Live mixed queue with instant jump & remove)
- *  - Mode 4: SYNCED LYRICS (Live LRCLIB auto-scrolling time-synced lyrics — tap any line to seek!)
+ * Refined for effortless daily comfort & silky-smooth speed:
+ *  - Spacious 6-Tab Hub (YT / SONGS / OFFLINE / FAVS / LISTS / RADIO) with ALL/ALBUMS/ARTISTS/FOLDERS strip inside SONGS
+ *  - Generous 82px track cards, big readable text, live % download progress button on every YT track
+ *  - Zero per-frame LinearGradient allocations & zero shadow-layer blurs -> rock-solid 30fps on all devices
+ *  - 5 Studio Modes: Hub, 10-Band Parametric EQ, Studio FX + Keep-Alive, Up-Next Queue, Synced Lyrics
  */
 @UnstableApi
 final class ConsoleRenderer {
-    static final float ROW = 76f;
-    static final float LYRIC_ROW = 54f;
-    static final float TAB_H = 52f;
-    static final float SUB_H = 48f;
+    static final float ROW = 82f;
+    static final float LYRIC_ROW = 56f;
+    static final float TAB_H = 54f;
+    static final float SUB_H = 50f;
     static final float STRIP_H = 42f;
 
-    private static final String[] TABS = {"YT", "SONGS", "BROWSE", "OFFLINE", "FAVS", "LISTS", "RADIO"};
-    private static final String[] BROWSE_SUBS = {"ALBUMS", "ARTISTS", "FOLDERS"};
+    private static final String[] TABS = {"YT", "SONGS", "OFFLINE", "FAVS", "LISTS", "RADIO"};
+    private static final String[] SONGS_SUBS = {"ALL", "ALBUMS", "ARTISTS", "FOLDERS"};
     private static final String[] FX_NAMES = {"PITCH", "SPEED", "BASS", "TREBLE", "3D WIDTH", "VOLUME"};
     private static final List<String> YT_SUGGESTIONS = Arrays.asList(
             "Daft Punk", "Synthwave", "Lofi Beats", "Phonk", "Arabic Hits", "The Weeknd", "Linkin Park");
@@ -70,9 +61,13 @@ final class ConsoleRenderer {
     private final Path curvePath = new Path(), areaPath = new Path(), clipPath = new Path(), tileClip = new Path();
     private final RectF tmp = new RectF();
 
+    // Cached static shaders (zero per-frame shader allocations!)
+    private Shader panelBgShader, panelSheenShader, eqAreaShader, eqLineShader, fxBarShader;
+    private int cachedTheme = -1;
+
     int mode = 0; // 0=Hub, 1=EQ, 2=FX+Reliability, 3=Queue, 4=Synced Lyrics
-    int tab = 0;
-    int browseSub = 0; // 0=Albums, 1=Artists, 2=Folders
+    int tab = 0;  // 0=YT, 1=SONGS, 2=OFFLINE, 3=FAVS, 4=LISTS, 5=RADIO
+    int songsSub = 0; // 0=ALL, 1=ALBUMS, 2=ARTISTS, 3=FOLDERS
     int sortMode;
     int ytMood = 0;
     int radioGenre = 0;
@@ -97,7 +92,6 @@ final class ConsoleRenderer {
     private boolean radioLoading;
     private final ArrayList<Track> savedStreams;
 
-    // Interactive state
     int eqBand = -1;
     int fxIdx = -1;
     float scroll = 0f;
@@ -111,14 +105,25 @@ final class ConsoleRenderer {
         this.ctx = ctx;
         this.host = host;
         this.pr = new RectF(panelRect);
-        this.pc = new RectF(pr.left + 26, pr.top + 20, pr.right - 26, pr.bottom - 18);
+        this.pc = new RectF(pr.left + 24, pr.top + 18, pr.right - 24, pr.bottom - 18);
         this.savedStreams = Prefs.streams(ctx);
         this.sortMode = Prefs.sortMode(ctx);
         this.tab = Math.max(0, Math.min(TABS.length - 1, Prefs.lastTab(ctx)));
     }
 
+    private void ensureShaders() {
+        if (panelBgShader != null && cachedTheme == Theme.index()) return;
+        cachedTheme = Theme.index();
+        panelBgShader = Theme.glassGrad(pr.top, pr.bottom);
+        panelSheenShader = Theme.y2kGlossSheen(pr.top, pr.top + 80f);
+        eqAreaShader = new LinearGradient(0, eqTop(), 0, eqBot(),
+                Theme.alpha(Theme.primary(), 58), Theme.alpha(Theme.secondary(), 28), Shader.TileMode.CLAMP);
+        eqLineShader = Theme.accentGrad(pc.left, eqTop(), pc.right, eqTop());
+        fxBarShader = Theme.accentGrad(fxX0(), pc.top, fxX1(), pc.top);
+    }
+
     boolean hasStrip() {
-        return mode == 0 && (tab == 0 || tab == 2 || tab == 6);
+        return mode == 0 && (tab == 0 || tab == 1 || tab == 5);
     }
 
     float listTop() {
@@ -178,8 +183,8 @@ final class ConsoleRenderer {
                 || t.folderName().toLowerCase(Locale.ROOT).contains(q);
     }
 
-    private static String groupKey(Track t, int bSub) {
-        String k = bSub == 0 ? t.album : (bSub == 1 ? t.artist : t.folderName());
+    private static String groupKey(Track t, int sub) {
+        String k = sub == 1 ? t.album : (sub == 2 ? t.artist : t.folderName());
         return k == null || k.isEmpty() ? "Unknown" : k;
     }
 
@@ -197,18 +202,16 @@ final class ConsoleRenderer {
             if (sQ != sv.queueVer) rebuild(sv, true);
             return;
         }
-        // Auto-load YouTube Music trending right away when YT tab is active so app is NEVER empty!
         if (tab == 0 && ytRes == null && !ytLoading) {
             loadYtMood(ytMood);
         }
-        if (tab == 6 && radioRes == null && !radioLoading) {
+        if (tab == 5 && radioRes == null && !radioLoading) {
             loadRadioGenre(radioGenre);
         }
         if (sLib != sv.libVer
-                || (tab == 3 && sOff != sv.offVer)
-                || (tab == 4 && sFav != sv.favVer)
-                || (tab == 5 && (sPl != sv.plVer || sRec != sv.recVer))) {
-            // If user opened app for the first time with 0 local songs while on SONGS tab, switch smoothly to YT!
+                || (tab == 2 && sOff != sv.offVer)
+                || (tab == 3 && sFav != sv.favVer)
+                || (tab == 4 && (sPl != sv.plVer || sRec != sv.recVer))) {
             if (sLib == -1 && sv.lib.isEmpty() && tab == 1) {
                 tab = 0;
                 Prefs.lastTab(ctx, 0);
@@ -243,18 +246,16 @@ final class ConsoleRenderer {
                 vkey = ytQuery.isEmpty() ? ("ytmood|" + ytMood) : ("ytq|" + ytQuery);
                 break;
 
-            case 1: // LOCAL SONGS
-                for (Track t : sv.lib) if (match(t, q)) vt.add(t);
-                Library.sort(vt, sortMode);
-                vkey = "all|" + sortMode + "|" + q;
-                break;
-
-            case 2: // BROWSE (ALBUMS / ARTISTS / FOLDERS)
-                if (grp == null) {
+            case 1: // LOCAL SONGS (+ ALL / ALBUMS / ARTISTS / FOLDERS strip!)
+                if (songsSub == 0) {
+                    for (Track t : sv.lib) if (match(t, q)) vt.add(t);
+                    Library.sort(vt, sortMode);
+                    vkey = "all|" + sortMode + "|" + q;
+                } else if (grp == null) {
                     HashMap<String, int[]> cnt = new HashMap<>();
                     for (Track t : sv.lib) {
                         if (!match(t, q)) continue;
-                        String k = groupKey(t, browseSub);
+                        String k = groupKey(t, songsSub);
                         int[] n = cnt.get(k);
                         if (n == null) { n = new int[1]; cnt.put(k, n); }
                         n[0]++;
@@ -270,28 +271,27 @@ final class ConsoleRenderer {
                         rows.add(r);
                     }
                 } else {
-                    for (Track t : sv.lib) if (groupKey(t, browseSub).equals(grp) && match(t, q)) vt.add(t);
-                    Library.sort(vt, browseSub == 0 ? 2 : sortMode);
-                    vkey = "grp|" + browseSub + "|" + grp + "|" + q;
+                    for (Track t : sv.lib) if (groupKey(t, songsSub).equals(grp) && match(t, q)) vt.add(t);
+                    Library.sort(vt, songsSub == 1 ? 2 : sortMode);
+                    vkey = "grp|" + songsSub + "|" + grp + "|" + q;
                 }
                 break;
 
-            case 3: // OFFLINE DOWNLOADED YT MUSIC TRACKS
+            case 2: // OFFLINE DOWNLOADED YT MUSIC TRACKS
                 for (Track t : sv.offlineList) if (match(t, q)) vt.add(t);
                 vkey = "off|" + sv.offVer + "|" + q;
                 break;
 
-            case 4: // UNIFIED FAVORITES (Local + YouTube Music!)
+            case 3: // FAVORITES
                 for (Track t : sv.favList) if (match(t, q)) vt.add(t);
                 vkey = "fav|" + sv.favVer + "|" + q;
                 break;
 
-            case 5: // PLAYLISTS + RECENTLY PLAYED
+            case 4: // PLAYLISTS + RECENTLY PLAYED
                 if (viewingRecent) {
                     for (Track t : sv.recentList) if (match(t, q)) vt.add(t);
                     vkey = "rec|" + sv.recVer + "|" + q;
                 } else if (activePlaylist == null) {
-                    // Always pin Recently Played right at top of Lists for instant access
                     Row recRow = new Row();
                     recRow.group = true;
                     recRow.recentGroup = true;
@@ -343,11 +343,11 @@ final class ConsoleRenderer {
         grp = null;
         activePlaylist = null;
         viewingRecent = false;
-        if (i != 6) query = "";
+        if (i != 5) query = "";
         scroll = 0f;
         rebuild(sv, false);
         if (i == 0 && ytRes == null && !ytLoading) loadYtMood(ytMood);
-        if (i == 6 && radioRes == null && !radioLoading) loadRadioGenre(radioGenre);
+        if (i == 5 && radioRes == null && !radioLoading) loadRadioGenre(radioGenre);
     }
 
     private void loadYtMood(int m) {
@@ -393,34 +393,30 @@ final class ConsoleRenderer {
             radioRes = new ArrayList<>(l);
             radioMsg = e == null ? "" : e;
             PlayerService v = PlayerService.I;
-            if (v != null && tab == 6) rebuild(v, false);
+            if (v != null && tab == 5) rebuild(v, false);
             host.invalidate();
         });
     }
 
     // ------------------------------------------------------------------ Drawing
     void draw(Canvas c, PlayerService sv, GyroParallax gyro) {
+        ensureShaders();
         syncIfNeeded(sv);
         c.save();
         clipPath.reset();
         clipPath.addRoundRect(pr.left + 4, pr.top + 4, pr.right - 4, pr.bottom - 4, 46, 46, Path.Direction.CW);
         c.clipPath(clipPath);
 
-        // Deep glossy obsidian-sapphire Y2K glass interior
         Q.setStyle(Paint.Style.FILL);
-        Q.setShader(Theme.glassGrad(pr.top, pr.bottom));
+        Q.setShader(panelBgShader);
         c.drawRect(pr, Q);
+        Q.setShader(panelSheenShader);
+        c.drawRect(pr.left, pr.top, pr.right, pr.top + 80f, Q);
         Q.setShader(null);
 
-        // Subtle curved top Y2K glass reflection sheen
-        Q.setShader(Theme.y2kGlossSheen(pr.top, pr.top + 86f));
-        c.drawRect(pr.left, pr.top, pr.right, pr.top + 86f, Q);
-        Q.setShader(null);
-
-        // Crisp glowing inner chrome bezel rim
         S.setStyle(Paint.Style.STROKE);
         S.setStrokeWidth(2f);
-        S.setColor(Theme.alpha(Theme.primary(), 85));
+        S.setColor(Theme.alpha(Theme.primary(), 80));
         c.drawRoundRect(pr.left + 6, pr.top + 6, pr.right - 6, pr.bottom - 6, 44, 44, S);
 
         switch (mode) {
@@ -433,7 +429,7 @@ final class ConsoleRenderer {
         c.restore();
     }
 
-    /** Glossy Early-2000s Y2K Aqua/Chrome tactile pill chip. */
+    /** Crisp, lightweight Y2K Aqua/Chrome tactile pill chip (ZERO per-frame gradient allocations!). */
     private void drawChip(Canvas c, RectF r, String label, boolean hot) {
         drawChipColored(c, r, label, hot, Theme.primary());
     }
@@ -441,61 +437,55 @@ final class ConsoleRenderer {
     private void drawChipColored(Canvas c, RectF r, String label, boolean hot, int accent) {
         float rad = Math.min(15f, r.height() * 0.45f);
         Q.setStyle(Paint.Style.FILL);
-        if (hot) {
-            Q.setShader(Theme.aquaPillGrad(r.top, r.bottom, accent));
-        } else {
-            Q.setShader(new LinearGradient(0, r.top, 0, r.bottom, 0xff14253e, 0xff091325, Shader.TileMode.CLAMP));
-        }
+        Q.setColor(hot ? accent : 0xff112138);
         c.drawRoundRect(r, rad, rad, Q);
-        Q.setShader(null);
 
-        // Subtle Y2K glossy upper meniscus glint on pill
-        Q.setColor(hot ? 0x44ffffff : 0x18ffffff);
+        Q.setColor(hot ? 0x38ffffff : 0x14ffffff);
         c.drawRoundRect(r.left + 3, r.top + 2, r.right - 3, r.centerY(), rad * 0.7f, rad * 0.7f, Q);
 
         S.setStyle(Paint.Style.STROKE);
-        S.setStrokeWidth(hot ? 2.0f : 1.3f);
-        S.setColor(hot ? Theme.lerp(accent, 0xffffffff, 0.5f) : Theme.alpha(Theme.CHROME_MID, 115));
+        S.setStrokeWidth(hot ? 1.8f : 1.3f);
+        S.setColor(hot ? Theme.lerp(accent, 0xffffffff, 0.45f) : Theme.alpha(Theme.CHROME_MID, 105));
         c.drawRoundRect(r, rad, rad, S);
 
-        Skin.text(c, Skin.fit(label, 16.5f, r.width() - 10f, Theme.TF_BOLD),
-                r.centerX(), r.centerY() + 6f, 16.5f,
+        Skin.text(c, Skin.fit(label, 17f, r.width() - 12f, Theme.TF_BOLD),
+                r.centerX(), r.centerY() + 6f, 17f,
                 hot ? 0xff03101d : Theme.TEXT_MAIN, Paint.Align.CENTER, Theme.TF_BOLD, false);
     }
 
-    // ---- Mode 0: UNIFIED MUSIC HUB
-    private RectF chipSearch()   { float y = pc.top + TAB_H; tmp.set(pc.right - 140, y + 5, pc.right, y + SUB_H - 5); return tmp; }
-    private RectF chipAction()   { float y = pc.top + TAB_H; tmp.set(pc.right - 252, y + 5, pc.right - 148, y + SUB_H - 5); return tmp; }
-    private RectF chipQueueBtn() { float y = pc.top + TAB_H; tmp.set(pc.right - 348, y + 5, pc.right - 260, y + SUB_H - 5); return tmp; }
-    private RectF chipLrcBtn()   { float y = pc.top + TAB_H; tmp.set(pc.right - 434, y + 5, pc.right - 356, y + SUB_H - 5); return tmp; }
+    // ---- Mode 0: UNIFIED MUSIC HUB (Spacious 6-Tab Layout)
+    private RectF chipSearch()   { float y = pc.top + TAB_H; tmp.set(pc.right - 156, y + 5, pc.right, y + SUB_H - 5); return tmp; }
+    private RectF chipAction()   { float y = pc.top + TAB_H; tmp.set(pc.right - 278, y + 5, pc.right - 166, y + SUB_H - 5); return tmp; }
+    private RectF chipQueueBtn() { float y = pc.top + TAB_H; tmp.set(pc.right - 384, y + 5, pc.right - 288, y + SUB_H - 5); return tmp; }
 
     private void drawHub(Canvas c, PlayerService sv) {
-        // 1. 7 Glossy Y2K Aqua Navigation Tabs
+        // 1. 6 Spacious Glossy Y2K Navigation Tabs
         float tw = pc.width() / TABS.length;
         float top = pc.top;
         for (int i = 0; i < TABS.length; i++) {
             float x0 = pc.left + i * tw;
             boolean on = (i == tab);
-            tmp.set(x0 + 2, top + 3, x0 + tw - 2, top + TAB_H - 7);
+            tmp.set(x0 + 3, top + 3, x0 + tw - 3, top + TAB_H - 7);
             if (on) {
-                int col = (i == 0) ? Theme.YT_BADGE : (i == 3 ? Theme.OFF_BADGE : Theme.primary());
+                int col = (i == 0) ? Theme.YT_BADGE : (i == 2 ? Theme.OFF_BADGE : Theme.primary());
                 Q.setStyle(Paint.Style.FILL);
-                Q.setShader(Theme.aquaPillGrad(tmp.top, tmp.bottom, col));
+                Q.setColor(col);
                 c.drawRoundRect(tmp, 14f, 14f, Q);
-                Q.setShader(null);
-                S.setStyle(Paint.Style.STROKE); S.setStrokeWidth(1.6f);
-                S.setColor(Theme.lerp(col, 0xffffffff, 0.55f));
+                Q.setColor(0x36ffffff);
+                c.drawRoundRect(tmp.left + 3, tmp.top + 2, tmp.right - 3, tmp.centerY(), 10f, 10f, Q);
+                S.setStyle(Paint.Style.STROKE); S.setStrokeWidth(1.5f);
+                S.setColor(Theme.lerp(col, 0xffffffff, 0.50f));
                 c.drawRoundRect(tmp, 14f, 14f, S);
             } else {
                 Q.setStyle(Paint.Style.FILL);
-                Q.setColor(0x550b182c);
+                Q.setColor(0x660b182c);
                 c.drawRoundRect(tmp, 14f, 14f, Q);
             }
-            Skin.text(c, TABS[i], tmp.centerX(), tmp.centerY() + 6f, 16.5f,
+            Skin.text(c, TABS[i], tmp.centerX(), tmp.centerY() + 6.5f, 18f,
                     on ? 0xff03101d : (i == 0 ? 0xffffa6b8 : Theme.TEXT_SUB), Paint.Align.CENTER, Theme.TF_BOLD, false);
         }
 
-        // 2. Sub-header: Breadcrumb/count + [LRC] + [QUEUE] + [Action] + [SEARCH]
+        // 2. Clean Sub-Header: Breadcrumb/count + [QUEUE] + [Action] + [SEARCH]
         float sy = top + TAB_H;
         String lead;
         if (tab == 0) lead = ytQuery.isEmpty() ? ("YT • " + YtMusic.MOODS[ytMood]) : ("‹ " + ytQuery);
@@ -504,20 +494,19 @@ final class ConsoleRenderer {
         else if (viewingRecent) lead = "‹ RECENT";
         else lead = TABS[tab] + " (" + rows.size() + ")";
 
-        float leadMax = Math.max(90f, pc.width() - 446f);
-        Skin.text(c, Skin.fit(lead, 19f, leadMax, Theme.TF_BOLD),
-                pc.left + 4, sy + 30f, 19f,
+        float leadMax = Math.max(110f, pc.width() - 398f);
+        Skin.text(c, Skin.fit(lead, 20f, leadMax, Theme.TF_BOLD),
+                pc.left + 6, sy + 32f, 20f,
                 (grp != null || activePlaylist != null || viewingRecent || !ytQuery.isEmpty()) ? Theme.primary() : Theme.TEXT_SUB,
                 Paint.Align.LEFT, Theme.TF_BOLD, false);
 
-        drawChip(c, chipLrcBtn(), "LRC", false);
         drawChip(c, chipQueueBtn(), "QUEUE", false);
         if (tab == 0) {
             Track cur = sv.current();
             drawChipColored(c, chipAction(), "RADIO+", cur != null && cur.isYouTube(), Theme.YT_BADGE);
-        } else if (tab == 6) {
-            drawChip(c, chipAction(), "+ URL", false);
         } else if (tab == 5) {
+            drawChip(c, chipAction(), "+ URL", false);
+        } else if (tab == 4) {
             drawChip(c, chipAction(), "+ NEW", false);
         } else {
             drawChip(c, chipAction(), Library.SORT_NAMES[sortMode], false);
@@ -526,31 +515,31 @@ final class ConsoleRenderer {
         if (tab == 0) {
             drawChipColored(c, chipSearch(), ytQuery.isEmpty() ? "SEARCH YT" : "× CLEAR", !ytQuery.isEmpty(), Theme.YT_BADGE);
         } else {
-            drawChip(c, chipSearch(), query.isEmpty() ? "SEARCH" : "× " + Skin.fit(query, 15f, 82f), !query.isEmpty());
+            drawChip(c, chipSearch(), query.isEmpty() ? "SEARCH" : "× " + Skin.fit(query, 15.5f, 96f), !query.isEmpty());
         }
 
-        // 3. Context Strip: YT Moods (tab 0) | Browse Sub-Tabs (tab 2) | Radio Genres (tab 6)
+        // 3. Context Strip: YT Moods (tab 0) | Songs Browse Mode (tab 1) | Radio Genres (tab 5)
         float gy = sy + SUB_H + 3f;
         if (tab == 0) {
             float gw = pc.width() / YtMusic.MOODS.length;
             for (int i = 0; i < YtMusic.MOODS.length; i++) {
                 float gx = pc.left + i * gw;
-                tmp.set(gx + 2, gy, gx + gw - 2, gy + 33f);
+                tmp.set(gx + 2, gy, gx + gw - 2, gy + 34f);
                 boolean hot = ytQuery.isEmpty() && (i == ytMood);
                 drawMiniPill(c, tmp, YtMusic.MOODS[i], hot, Theme.primary());
             }
-        } else if (tab == 2) {
-            float gw = pc.width() / BROWSE_SUBS.length;
-            for (int i = 0; i < BROWSE_SUBS.length; i++) {
+        } else if (tab == 1) {
+            float gw = pc.width() / SONGS_SUBS.length;
+            for (int i = 0; i < SONGS_SUBS.length; i++) {
                 float gx = pc.left + i * gw;
-                tmp.set(gx + 4, gy, gx + gw - 4, gy + 33f);
-                drawMiniPill(c, tmp, BROWSE_SUBS[i], i == browseSub, Theme.primary());
+                tmp.set(gx + 3, gy, gx + gw - 3, gy + 34f);
+                drawMiniPill(c, tmp, SONGS_SUBS[i], i == songsSub, Theme.primary());
             }
-        } else if (tab == 6) {
+        } else if (tab == 5) {
             float gw = pc.width() / Radio.GENRES.length;
             for (int i = 0; i < Radio.GENRES.length; i++) {
                 float gx = pc.left + i * gw;
-                tmp.set(gx + 2, gy, gx + gw - 2, gy + 33f);
+                tmp.set(gx + 2, gy, gx + gw - 2, gy + 34f);
                 drawMiniPill(c, tmp, Radio.GENRES[i], i == radioGenre, Theme.secondary());
             }
         }
@@ -561,12 +550,12 @@ final class ConsoleRenderer {
     private void drawMiniPill(Canvas c, RectF r, String text, boolean hot, int col) {
         Q.setStyle(Paint.Style.FILL);
         Q.setColor(hot ? Theme.alpha(col, 62) : 0x77091426);
-        c.drawRoundRect(r, 10f, 10f, Q);
+        c.drawRoundRect(r, 11f, 11f, Q);
         if (hot) {
-            S.setStyle(Paint.Style.STROKE); S.setStrokeWidth(1.6f); S.setColor(col);
-            c.drawRoundRect(r, 10f, 10f, S);
+            S.setStyle(Paint.Style.STROKE); S.setStrokeWidth(1.5f); S.setColor(col);
+            c.drawRoundRect(r, 11f, 11f, S);
         }
-        Skin.text(c, text, r.centerX(), r.centerY() + 5f, 13.5f,
+        Skin.text(c, text, r.centerX(), r.centerY() + 5.5f, 14f,
                 hot ? Theme.TEXT_MAIN : Theme.TEXT_SUB, Paint.Align.CENTER, Theme.TF_BOLD, false);
     }
 
@@ -574,7 +563,7 @@ final class ConsoleRenderer {
         long totMs = sv.queueDurationMs();
         String durPart = totMs > 0 ? (" • " + (totMs / 60_000L) + "m") : "";
         Skin.text(c, "UP NEXT (" + sv.queue.size() + durPart + ")", pc.left + 6, pc.top + 36f, 21f,
-                Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, true);
+                Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, false);
         tmp.set(pc.right - 368, pc.top + 7, pc.right - 258, pc.top + 47);
         drawChip(c, tmp, "SHUF", false);
         tmp.set(pc.right - 248, pc.top + 7, pc.right - 144, pc.top + 47);
@@ -588,7 +577,7 @@ final class ConsoleRenderer {
     private void drawLyrics(Canvas c, PlayerService sv) {
         Track cur = sv.current();
         String hdr = cur == null ? "LYRICS" : ("LYRICS • " + Skin.fit(cur.title, 19f, pc.width() - 270f, Theme.TF_BOLD));
-        Skin.text(c, hdr, pc.left + 4, pc.top + 36f, 20f, Theme.glow(), Paint.Align.LEFT, Theme.TF_BOLD, true);
+        Skin.text(c, hdr, pc.left + 4, pc.top + 36f, 20f, Theme.glow(), Paint.Align.LEFT, Theme.TF_BOLD, false);
 
         tmp.set(pc.right - 246, pc.top + 7, pc.right - 142, pc.top + 47);
         drawChip(c, tmp, "RETRY", false);
@@ -609,7 +598,6 @@ final class ConsoleRenderer {
         long pos = sv.pl != null ? sv.pl.getCurrentPosition() : 0L;
         int active = sh.synced ? sh.activeIndex(pos) : -1;
 
-        // Continuously ease synced lyrics toward dead-center unless user just manually scrolled!
         if (sh.synced && active >= 0) {
             boolean trackChanged = !sh.trackKey.equals(lastLyricKey);
             float target = clampScroll(active * LYRIC_ROW - lh * 0.38f);
@@ -620,11 +608,8 @@ final class ConsoleRenderer {
             } else if (System.currentTimeMillis() - lastUserLyricScrollMs > 3200L) {
                 lastLyricIdx = active;
                 float diff = target - scroll;
-                if (Math.abs(diff) > 0.8f) {
-                    scroll += diff * 0.24f;
-                } else {
-                    scroll = target;
-                }
+                if (Math.abs(diff) > 0.8f) scroll += diff * 0.24f;
+                else scroll = target;
             }
         }
 
@@ -641,15 +626,15 @@ final class ConsoleRenderer {
                 Q.setStyle(Paint.Style.FILL);
                 Q.setColor(Theme.alpha(Theme.primary(), 42));
                 c.drawRoundRect(tmp, 14f, 14f, Q);
-                S.setStyle(Paint.Style.STROKE); S.setStrokeWidth(1.8f);
-                S.setColor(Theme.alpha(Theme.primary(), 175));
+                S.setStyle(Paint.Style.STROKE); S.setStrokeWidth(1.6f);
+                S.setColor(Theme.alpha(Theme.primary(), 170));
                 c.drawRoundRect(tmp, 14f, 14f, S);
             }
-            float sz = hot ? 23f : 19f;
+            float sz = hot ? 23.5f : 19.5f;
             int col = hot ? 0xffffffff : (active >= 0 && i < active ? Theme.TEXT_MUTED : Theme.TEXT_SUB);
             Skin.text(c, Skin.fit(line.text, sz, pc.width() - 28f, hot ? Theme.TF_BOLD : Theme.TF_MEDIUM),
                     pc.centerX(), y + LYRIC_ROW * 0.62f, sz, col, Paint.Align.CENTER,
-                    hot ? Theme.TF_BOLD : Theme.TF_MEDIUM, hot);
+                    hot ? Theme.TF_BOLD : Theme.TF_MEDIUM, false);
         }
         c.restore();
     }
@@ -676,7 +661,7 @@ final class ConsoleRenderer {
             Row r = rows.get(i);
 
             if (r.group) {
-                tmp.set(pc.left, y + 4, pc.right, y + ROW - 6);
+                tmp.set(pc.left, y + 4, pc.right - 8, y + ROW - 6);
                 Q.setStyle(Paint.Style.FILL);
                 Q.setColor(r.recentGroup ? Theme.alpha(Theme.secondary(), 44) : 0x990c1a30);
                 c.drawRoundRect(tmp, 16f, 16f, Q);
@@ -684,105 +669,113 @@ final class ConsoleRenderer {
                 S.setColor(r.recentGroup ? Theme.alpha(Theme.secondary(), 145) : 0x387fb8eb);
                 c.drawRoundRect(tmp, 16f, 16f, S);
 
-                Skin.text(c, Skin.fit(r.a, 22.5f, pc.width() - 210f, Theme.TF_BOLD),
-                        pc.left + 18, y + 43f, 22.5f, Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, r.recentGroup);
-                Skin.text(c, r.b, pc.right - 42, y + 42f, 17.5f, Theme.primary(), Paint.Align.RIGHT, Theme.TF_MEDIUM, false);
-                Skin.text(c, "›", pc.right - 16, y + 45f, 26f, Theme.TEXT_SUB, Paint.Align.RIGHT, Theme.TF_BOLD, false);
+                Skin.text(c, Skin.fit(r.a, 23f, pc.width() - 220f, Theme.TF_BOLD),
+                        pc.left + 18, y + 47f, 23f, Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, false);
+                Skin.text(c, r.b, pc.right - 48, y + 46f, 18f, Theme.primary(), Paint.Align.RIGHT, Theme.TF_MEDIUM, false);
+                Skin.text(c, "›", pc.right - 22, y + 49f, 26f, Theme.TEXT_SUB, Paint.Align.RIGHT, Theme.TF_BOLD, false);
                 continue;
             }
 
             Track t = r.t;
             boolean on = queueView ? (i == curQ) : (cur != null && cur.key().equals(t.key()));
 
-            // Glossy obsidian-sapphire track card
-            tmp.set(pc.left, y + 3, pc.right, y + ROW - 5);
+            tmp.set(pc.left, y + 3, pc.right - 8, y + ROW - 5);
             Q.setStyle(Paint.Style.FILL);
-            Q.setColor(on ? Theme.alpha(Theme.primary(), 42) : 0x7c0a1528);
+            Q.setColor(on ? Theme.alpha(Theme.primary(), 40) : 0x7c0a1528);
             c.drawRoundRect(tmp, 15f, 15f, Q);
             if (on) {
                 S.setStyle(Paint.Style.STROKE);
-                S.setStrokeWidth(2f);
+                S.setStrokeWidth(1.8f);
                 S.setColor(Theme.alpha(Theme.primary(), 175));
                 c.drawRoundRect(tmp, 15f, 15f, S);
             }
 
-            // Left album art tile (works for Local AND YouTube Music!)
-            float tile = 52f;
-            float tx0 = pc.left + 11f, ty0 = y + (ROW - tile) * 0.5f - 1f;
+            // Album art tile
+            float tile = 56f;
+            float tx0 = pc.left + 12f, ty0 = y + (ROW - tile) * 0.5f - 1f;
             tmp.set(tx0, ty0, tx0 + tile, ty0 + tile);
             Bitmap th = Art.thumb(ctx, t, host::postInvalidateOnAnimation);
             if (th != null && !th.isRecycled()) {
                 c.save();
                 tileClip.reset();
-                tileClip.addRoundRect(tmp, 11f, 11f, Path.Direction.CW);
+                tileClip.addRoundRect(tmp, 12f, 12f, Path.Direction.CW);
                 c.clipPath(tileClip);
                 c.drawBitmap(th, null, tmp, B);
                 c.restore();
             } else {
-                Q.setColor(on ? Theme.alpha(Theme.primary(), 80) : 0xff11223a);
-                c.drawRoundRect(tmp, 11f, 11f, Q);
+                Q.setColor(on ? Theme.alpha(Theme.primary(), 75) : 0xff11223a);
+                c.drawRoundRect(tmp, 12f, 12f, Q);
                 String tag = t.isRadio() ? "LIVE" : (t.isYouTube() ? "YT" : String.format(Locale.US, "%02d", (r.ti + 1) % 100));
-                Skin.text(c, tag, tmp.centerX(), tmp.centerY() + 6f, t.stream() ? 13.5f : 17.5f,
+                Skin.text(c, tag, tmp.centerX(), tmp.centerY() + 6f, t.stream() ? 14f : 18f,
                         t.isYouTube() ? Theme.YT_BADGE : (on ? Theme.TEXT_MAIN : Theme.primary()),
                         Paint.Align.CENTER, Theme.TF_MONO, false);
             }
 
-            // Live 3-bar equalizer overlay on currently playing tile
             if (on && sv.pl.isPlaying()) {
                 Q.setColor(0x99040b16);
-                c.drawRoundRect(tmp, 11f, 11f, Q);
+                c.drawRoundRect(tmp, 12f, 12f, Q);
                 Q.setColor(Theme.primary());
                 for (int b = 0; b < 3; b++) {
-                    float bh = 10f + 20f * (float) Math.abs(Math.sin(now / 150.0 + b * 1.4));
-                    float bx = tmp.left + 13f + b * 10f;
-                    c.drawRoundRect(bx, tmp.bottom - 10f - bh, bx + 5.5f, tmp.bottom - 10f, 3f, 3f, Q);
+                    float bh = 10f + 20f * (float) Math.abs(Math.sin(now / 170.0 + b * 1.4));
+                    float bx = tmp.left + 14f + b * 11f;
+                    c.drawRoundRect(bx, tmp.bottom - 10f - bh, bx + 6f, tmp.bottom - 10f, 3f, 3f, Q);
                 }
             }
 
-            // Title & Subtitle
-            float textX = tx0 + tile + 13f;
+            float textX = tx0 + tile + 14f;
             boolean showDlBtn = !queueView && t.isYouTube();
-            float rightPad = queueView ? 74f : (showDlBtn ? 164f : (t.isRadio() ? 132f : 124f));
+            float rightPad = queueView ? 74f : (showDlBtn ? 180f : (t.isRadio() ? 136f : 126f));
             float avail = Math.max(80f, pc.right - textX - rightPad);
 
-            Skin.text(c, Skin.fit(t.title, 22f, avail, Theme.TF_BOLD),
-                    textX, y + 33f, 22f, on ? Theme.glow() : Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, on);
-            Skin.text(c, Skin.fit(t.subLabel(), 16.5f, avail, Theme.TF_MEDIUM),
-                    textX, y + 57f, 16.5f, Theme.TEXT_SUB, Paint.Align.LEFT, Theme.TF_MEDIUM, false);
+            Skin.text(c, Skin.fit(t.title, 23f, avail, Theme.TF_BOLD),
+                    textX, y + 36f, 23f, on ? Theme.glow() : Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, false);
+            Skin.text(c, Skin.fit(t.subLabel(), 17f, avail, Theme.TF_MEDIUM),
+                    textX, y + 61f, 17f, Theme.TEXT_SUB, Paint.Align.LEFT, Theme.TF_MEDIUM, false);
 
-            // Right actions & telemetry badges
             if (queueView) {
-                Skin.text(c, "×", pc.right - 26f, y + 45f, 28f, Theme.TEXT_SUB, Paint.Align.CENTER, Theme.TF_BOLD, false);
+                Skin.text(c, "×", pc.right - 30f, y + 48f, 28f, Theme.TEXT_SUB, Paint.Align.CENTER, Theme.TF_BOLD, false);
             } else if (showDlBtn) {
-                // 1-tap Offline Download button [↓ / ✓ / ...] on every YouTube Music track!
                 boolean off = sv.isOffline(t);
-                boolean dl = Downloader.isDownloading(t.ytId);
-                tmp.set(pc.right - 54f, y + 18f, pc.right - 10f, y + ROW - 20f);
+                int pct = Downloader.progress(t.ytId);
+                boolean dl = pct >= 0;
+                tmp.set(pc.right - 72f, y + 18f, pc.right - 14f, y + ROW - 20f);
                 Q.setStyle(Paint.Style.FILL);
-                Q.setColor(off ? Theme.alpha(Theme.OFF_BADGE, 52) : (dl ? Theme.alpha(Theme.primary(), 56) : 0x55122640));
-                c.drawRoundRect(tmp, 11f, 11f, Q);
+                Q.setColor(off ? Theme.alpha(Theme.OFF_BADGE, 50) : (dl ? Theme.alpha(Theme.primary(), 56) : 0x55122640));
+                c.drawRoundRect(tmp, 12f, 12f, Q);
                 S.setStyle(Paint.Style.STROKE); S.setStrokeWidth(1.4f);
-                S.setColor(off ? Theme.OFF_BADGE : Theme.alpha(Theme.primary(), 140));
-                c.drawRoundRect(tmp, 11f, 11f, S);
-                Skin.text(c, off ? "✓" : (dl ? "…" : "↓"), tmp.centerX(), tmp.centerY() + 6.5f, 19f,
+                S.setColor(off ? Theme.OFF_BADGE : Theme.alpha(Theme.primary(), 145));
+                c.drawRoundRect(tmp, 12f, 12f, S);
+                String dlTxt = off ? "✓" : (dl ? (pct + "%") : "↓");
+                Skin.text(c, dlTxt, tmp.centerX(), tmp.centerY() + 6.5f, dl ? 14.5f : 20f,
                         off ? Theme.OFF_BADGE : Theme.glow(), Paint.Align.CENTER, Theme.TF_BOLD, false);
 
-                if (sv.fav(t)) Skin.heart(c, pc.right - 144f, y + 37f, 8f, true, Theme.HEART_ON);
+                if (sv.fav(t)) Skin.heart(c, pc.right - 158f, y + 40f, 8f, true, Theme.HEART_ON);
                 String durTxt = t.dur > 0 ? Skin.mmss(t.dur) : "YT";
-                Skin.text(c, durTxt, pc.right - 64f, y + 42f, 16.5f, Theme.TEXT_SUB, Paint.Align.RIGHT, Theme.TF_MONO, false);
+                Skin.text(c, durTxt, pc.right - 82f, y + 45f, 16.5f, Theme.TEXT_SUB, Paint.Align.RIGHT, Theme.TF_MONO, false);
             } else if (t.isRadio()) {
-                if (isSaved(t)) Skin.heart(c, pc.right - 116f, y + 37f, 8f, true, Theme.HEART_ON);
+                if (isSaved(t)) Skin.heart(c, pc.right - 122f, y + 40f, 8f, true, Theme.HEART_ON);
                 Skin.text(c, Skin.fit(t.formatBadge(), 14.5f, 102f, Theme.TF_MONO),
-                        pc.right - 12f, y + 42f, 14.5f, Theme.primary(), Paint.Align.RIGHT, Theme.TF_MONO, false);
+                        pc.right - 16f, y + 45f, 14.5f, Theme.primary(), Paint.Align.RIGHT, Theme.TF_MONO, false);
             } else {
-                if (sv.fav(t)) Skin.heart(c, pc.right - 98f, y + 37f, 8f, true, Theme.HEART_ON);
+                if (sv.fav(t)) Skin.heart(c, pc.right - 104f, y + 40f, 8f, true, Theme.HEART_ON);
                 if (t.isOfflineYtm()) {
-                    Skin.text(c, "OFF", pc.right - 12f, y + 29f, 12.5f, Theme.OFF_BADGE, Paint.Align.RIGHT, Theme.TF_MONO, false);
-                    Skin.text(c, t.dur > 0 ? Skin.mmss(t.dur) : "", pc.right - 12f, y + 51f, 15.5f, Theme.TEXT_SUB, Paint.Align.RIGHT, Theme.TF_MONO, false);
+                    Skin.text(c, "OFF", pc.right - 16f, y + 32f, 13f, Theme.OFF_BADGE, Paint.Align.RIGHT, Theme.TF_MONO, false);
+                    Skin.text(c, t.dur > 0 ? Skin.mmss(t.dur) : "", pc.right - 16f, y + 55f, 16f, Theme.TEXT_SUB, Paint.Align.RIGHT, Theme.TF_MONO, false);
                 } else {
-                    Skin.text(c, Skin.mmss(t.dur), pc.right - 12f, y + 42f, 17.5f, Theme.TEXT_SUB, Paint.Align.RIGHT, Theme.TF_MONO, false);
+                    Skin.text(c, Skin.mmss(t.dur), pc.right - 16f, y + 45f, 17.5f, Theme.TEXT_SUB, Paint.Align.RIGHT, Theme.TF_MONO, false);
                 }
             }
+        }
+
+        // Sleek scrollbar indicator on right edge
+        float ms = maxScroll();
+        if (ms > 1f) {
+            float lh = listH();
+            float thumbH = Math.max(36f, lh * (lh / (lh + ms)));
+            float thumbY = y0 + (scroll / ms) * (lh - thumbH);
+            Q.setStyle(Paint.Style.FILL);
+            Q.setColor(Theme.alpha(Theme.primary(), 110));
+            c.drawRoundRect(pc.right - 4f, thumbY, pc.right + 1f, thumbY + thumbH, 3f, 3f, Q);
         }
         c.restore();
     }
@@ -791,10 +784,10 @@ final class ConsoleRenderer {
         if (tab == 0) return ytMsg.isEmpty() ? "TAP SEARCH YT TO STREAM ANY SONG" : ytMsg;
         if (!query.isEmpty()) return "NO MATCHES FOR \"" + query + "\"";
         switch (tab) {
-            case 1: case 2: return sv.lib.isEmpty() ? "NO LOCAL FILES — USE YT TAB TO STREAM!" : "EMPTY";
-            case 3: return "NO OFFLINE SONGS — TAP ↓ ON ANY YT TRACK";
-            case 4: return "NO FAVOURITES — LONG-PRESS OR TAP ♥";
-            case 5: return viewingRecent ? "NO RECENTLY PLAYED TRACKS"
+            case 1: return sv.lib.isEmpty() ? "NO LOCAL FILES — USE YT TAB TO STREAM!" : "EMPTY";
+            case 2: return "NO OFFLINE SONGS — TAP ↓ ON ANY YT TRACK";
+            case 3: return "NO FAVOURITES — LONG-PRESS OR TAP ♥";
+            case 4: return viewingRecent ? "NO RECENTLY PLAYED TRACKS"
                     : (activePlaylist == null ? "TAP + NEW TO CREATE A PLAYLIST" : "EMPTY — LONG-PRESS TRACKS TO ADD");
             default: return radioMsg.isEmpty() ? "NO STATIONS" : radioMsg;
         }
@@ -817,7 +810,7 @@ final class ConsoleRenderer {
     }
 
     private void drawEq(Canvas c, PlayerService sv) {
-        Skin.text(c, "10-BAND PARAMETRIC EQ", pc.left + 4, pc.top + 33f, 21.5f, Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, true);
+        Skin.text(c, "10-BAND PARAMETRIC EQ", pc.left + 4, pc.top + 33f, 21.5f, Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, false);
         drawChip(c, chipEqOn(), sv.dsp.eqEnabled ? "EQ ON" : "BYPASS", sv.dsp.eqEnabled);
         drawChip(c, chipEqFlat(), "FLAT", false);
 
@@ -852,20 +845,15 @@ final class ConsoleRenderer {
         areaPath.close();
 
         Q.setStyle(Paint.Style.FILL);
-        Q.setShader(new LinearGradient(0, top, 0, bot,
-                Theme.alpha(Theme.primary(), sv.dsp.eqEnabled ? 68 : 20),
-                Theme.alpha(Theme.secondary(), sv.dsp.eqEnabled ? 42 : 10),
-                Shader.TileMode.CLAMP));
+        Q.setShader(eqAreaShader);
         c.drawPath(areaPath, Q);
         Q.setShader(null);
 
         S.setStyle(Paint.Style.STROKE);
-        S.setStrokeWidth(3.5f);
-        S.setShader(Theme.accentGrad(xs[0], mid, xs[9], mid));
-        if (sv.dsp.eqEnabled) Theme.applyGlow(S, 10f, Theme.primary(), 185);
+        S.setStrokeWidth(3.2f);
+        S.setShader(eqLineShader);
         c.drawPath(curvePath, S);
         S.setShader(null);
-        S.clearShadowLayer();
 
         Q.setStyle(Paint.Style.FILL);
         for (int i = 0; i < 11; i++) {
@@ -883,18 +871,17 @@ final class ConsoleRenderer {
             tmp.set(cx - 5, Math.min(mid, ky), cx + 5, Math.max(mid, ky));
             c.drawRoundRect(tmp, 5f, 5f, Q);
 
-            Q.setShader(Theme.chromeGrad(cx - 18, ky - 10, cx + 18, ky + 10));
+            Q.setColor(active ? 0xffeef7ff : 0xffb8cde4);
             tmp.set(cx - 17, ky - 9.5f, cx + 17, ky + 9.5f);
             c.drawRoundRect(tmp, 8f, 8f, Q);
-            Q.setShader(null);
             S.setStyle(Paint.Style.STROKE);
-            S.setStrokeWidth(active ? 2.5f : 1.3f);
+            S.setStrokeWidth(active ? 2.4f : 1.3f);
             S.setColor(active ? 0xffffffff : Theme.alpha(Theme.primary(), 185));
             c.drawRoundRect(tmp, 8f, 8f, S);
 
             if (active) {
                 Skin.text(c, String.format(Locale.US, "%+.0f", v), cx, Math.max(top + 20f, ky - 16f),
-                        16.5f, 0xffffffff, Paint.Align.CENTER, Theme.TF_MONO, true);
+                        16.5f, 0xffffffff, Paint.Align.CENTER, Theme.TF_MONO, false);
             }
 
             String lbl = i == 0 ? "PRE" : Dsp.LABELS[i - 1];
@@ -954,7 +941,7 @@ final class ConsoleRenderer {
     private RectF chipGyro() { float y = themeRowY(); tmp.set(pc.right - 156f, y - 21f, pc.right, y + 21f); return tmp; }
 
     private void drawFx(Canvas c, PlayerService sv, GyroParallax gyro) {
-        Skin.text(c, "STUDIO DSP & ENGINE", pc.left + 4, pc.top + 33f, 21.5f, Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, true);
+        Skin.text(c, "STUDIO DSP & ENGINE", pc.left + 4, pc.top + 33f, 21.5f, Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, false);
         tmp.set(pc.right - 134, pc.top + 6, pc.right, pc.top + 44);
         drawChip(c, tmp, "RESET FX", false);
 
@@ -965,7 +952,7 @@ final class ConsoleRenderer {
             float kx = x0 + (x1 - x0) * f;
             boolean active = (i == fxIdx);
 
-            Skin.text(c, FX_NAMES[i], pc.left + 4, y - 1f, 17.5f, active ? Theme.glow() : Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, active);
+            Skin.text(c, FX_NAMES[i], pc.left + 4, y - 1f, 17.5f, active ? Theme.glow() : Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, false);
             Skin.text(c, fxTxt(sv, i), pc.left + 4, y + 19f, 15.5f, Theme.primary(), Paint.Align.LEFT, Theme.TF_MONO, false);
 
             if (i != 1 && i != 5) {
@@ -980,35 +967,29 @@ final class ConsoleRenderer {
             S.setColor(0xff091426);
             c.drawLine(x0, y, x1, y, S);
 
-            S.setShader(Theme.accentGrad(x0, y, x1, y));
-            if (active) Theme.applyGlow(S, 10f, Theme.primary(), 180);
+            S.setShader(fxBarShader);
             c.drawLine(x0, y, kx, y, S);
             S.setShader(null);
-            S.clearShadowLayer();
 
             Q.setStyle(Paint.Style.FILL);
-            Q.setShader(Theme.chromeGrad(kx - 15, y - 15, kx + 15, y + 15));
-            c.drawCircle(kx, y, active ? 17f : 14.5f, Q);
-            Q.setShader(null);
+            Q.setColor(active ? 0xffeef7ff : 0xffbdd4ec);
+            c.drawCircle(kx, y, active ? 16.5f : 14f, Q);
             S.setStrokeWidth(2f);
             S.setColor(active ? 0xffffffff : Theme.primary());
-            c.drawCircle(kx, y, active ? 17f : 14.5f, S);
+            c.drawCircle(kx, y, active ? 16.5f : 14f, S);
         }
 
-        // Row 1: 5 Studio DSP chips
         drawChip(c, fxStudioChip(0), "REV " + Dsp.REVERB_NAMES[sv.dsp.reverbMode], sv.dsp.reverbMode > 0);
         drawChip(c, fxStudioChip(1), sv.dsp.limiterEnabled ? "LIMIT ON" : "LIMIT OFF", sv.dsp.limiterEnabled);
         drawChip(c, fxStudioChip(2), sv.chanName(), sv.chan != 0);
         drawChip(c, fxStudioChip(3), sv.xfadeSec > 0 ? "XFADE " + sv.xfadeSec + "s" : "XFADE OFF", sv.xfadeSec > 0);
         drawChip(c, fxStudioChip(4), "SLP " + sv.sleepLabel(), sv.sleepMin > 0 || sv.sleepEndOfTrack);
 
-        // Row 2: 3 Bulletproof Reliability & YT Engine chips!
         boolean whitelisted = MainActivity.isBatteryWhitelisted(ctx);
         drawChipColored(c, fxRelChip(0), sv.ignoreFocus ? "NO-STOP: ON" : "NO-STOP: AUTO", sv.ignoreFocus, Theme.OFF_BADGE);
         drawChipColored(c, fxRelChip(1), sv.ytAutoRadio ? "YT RADIO: ON" : "YT RADIO: OFF", sv.ytAutoRadio, Theme.YT_BADGE);
         drawChipColored(c, fxRelChip(2), whitelisted ? "KEEP ALIVE ✓" : "KEEP ALIVE !", whitelisted, Theme.OFF_BADGE);
 
-        // Bottom row: 5 Live Theme Orbs + 3D Gyro Toggle
         float ty = themeRowY();
         Skin.text(c, "THEME", pc.left + 4, ty + 6f, 16.5f, Theme.TEXT_SUB, Paint.Align.LEFT, Theme.TF_BOLD, false);
         for (int i = 0; i < Theme.PALETTES.length; i++) {
@@ -1016,12 +997,10 @@ final class ConsoleRenderer {
             boolean sel = (i == Theme.index());
             Q.setStyle(Paint.Style.FILL);
             Q.setColor(Theme.PALETTES[i].primary);
-            if (sel) Theme.applyGlow(Q, 13f, Theme.PALETTES[i].primary, 220);
-            c.drawCircle(ox, ty, sel ? 17f : 13f, Q);
-            Q.clearShadowLayer();
+            c.drawCircle(ox, ty, sel ? 16.5f : 13f, Q);
             if (sel) {
                 S.setStyle(Paint.Style.STROKE); S.setStrokeWidth(2.4f); S.setColor(0xffffffff);
-                c.drawCircle(ox, ty, 20.5f, S);
+                c.drawCircle(ox, ty, 20f, S);
             }
         }
         drawChip(c, chipGyro(), gyro.isEnabled() ? "3D TILT ON" : "3D TILT OFF", gyro.isEnabled());
@@ -1060,7 +1039,7 @@ final class ConsoleRenderer {
             return;
         }
 
-        // Top 7-tab navigation bar
+        // Top 6-tab bar
         if (y < pc.top + TAB_H) {
             int i = (int) ((x - pc.left) / (pc.width() / TABS.length));
             if (i >= 0 && i < TABS.length) {
@@ -1070,7 +1049,7 @@ final class ConsoleRenderer {
             return;
         }
 
-        // Context strip (YT Moods / Browse Sub / Radio Genres)
+        // Context strip (YT Moods / Songs Sub / Radio Genres)
         if (hasStrip() && y >= pc.top + TAB_H + SUB_H) {
             if (tab == 0) {
                 int m = (int) ((x - pc.left) / (pc.width() / YtMusic.MOODS.length));
@@ -1078,15 +1057,15 @@ final class ConsoleRenderer {
                     host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     loadYtMood(m);
                 }
-            } else if (tab == 2) {
-                int b = (int) ((x - pc.left) / (pc.width() / BROWSE_SUBS.length));
-                if (b >= 0 && b < BROWSE_SUBS.length) {
-                    browseSub = b;
+            } else if (tab == 1) {
+                int b = (int) ((x - pc.left) / (pc.width() / SONGS_SUBS.length));
+                if (b >= 0 && b < SONGS_SUBS.length) {
+                    songsSub = b;
                     grp = null;
                     rebuild(sv, false);
                     host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                 }
-            } else if (tab == 6) {
+            } else if (tab == 5) {
                 int g = (int) ((x - pc.left) / (pc.width() / Radio.GENRES.length));
                 if (g >= 0 && g < Radio.GENRES.length) {
                     host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
@@ -1102,7 +1081,7 @@ final class ConsoleRenderer {
             if (tab == 0) {
                 if (!ytQuery.isEmpty()) loadYtMood(ytMood);
                 else promptYtSearch(sv);
-            } else if (!query.isEmpty() && tab != 6) {
+            } else if (!query.isEmpty() && tab != 5) {
                 query = "";
                 rebuild(sv, false);
             } else {
@@ -1119,9 +1098,9 @@ final class ConsoleRenderer {
                     sv.playYtWithRadio(vt.get(0));
                     Toast.makeText(ctx, "Starting YT Auto-Radio…", Toast.LENGTH_SHORT).show();
                 }
-            } else if (tab == 6) {
-                promptUrl(sv);
             } else if (tab == 5) {
+                promptUrl(sv);
+            } else if (tab == 4) {
                 promptCreatePlaylist(sv);
             } else {
                 sortMode = (sortMode + 1) % Library.SORT_NAMES.length;
@@ -1132,12 +1111,7 @@ final class ConsoleRenderer {
             host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             mode = 3;
             rebuild(sv, false);
-        } else if (chipLrcBtn().contains(x, y)) {
-            host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-            mode = 4;
-            scroll = 0f;
-            sv.loadLyricsForCurrent();
-        } else if (x < pc.left + 320f) {
+        } else if (x < pc.left + 350f) {
             if (tab == 0 && !ytQuery.isEmpty()) {
                 loadYtMood(ytMood);
             } else if (grp != null || activePlaylist != null || viewingRecent) {
@@ -1153,7 +1127,6 @@ final class ConsoleRenderer {
         if (sv == null || y < listTop() || !pr.contains(x, y)) return;
 
         if (mode == 4) {
-            // Tap any synced lyric line to jump smoothly to that exact moment!
             Lyrics.Sheet sh = sv.currentLyrics;
             if (sh != null && sh.synced) {
                 int i = (int) ((y - listTop() + scroll) / LYRIC_ROW);
@@ -1173,7 +1146,7 @@ final class ConsoleRenderer {
         Row r = rows.get(i);
 
         if (mode == 3) {
-            if (x > pc.right - 68) {
+            if (x > pc.right - 72) {
                 sv.removeFromQueue(i);
                 host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             } else {
@@ -1193,8 +1166,7 @@ final class ConsoleRenderer {
         }
 
         Track t = r.t;
-        // 1-tap Offline Download button hit on right edge of YouTube Music rows!
-        if (t.isYouTube() && x >= pc.right - 60f) {
+        if (t.isYouTube() && x >= pc.right - 76f) {
             host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             if (sv.isOffline(t)) {
                 Toast.makeText(ctx, "Already saved in OFFLINE tab", Toast.LENGTH_SHORT).show();
@@ -1208,7 +1180,6 @@ final class ConsoleRenderer {
             return;
         }
 
-        // Queue full visible list so Next/Prev smoothly glide across every track in the active view!
         sv.playList(vt, r.ti, vkey);
         host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
     }
@@ -1287,7 +1258,7 @@ final class ConsoleRenderer {
                 Toast.makeText(ctx, "Removed offline file", Toast.LENGTH_SHORT).show();
             } else if (pick.contains("Favourite")) {
                 sv.toggleFav(t);
-                if (tab == 4) rebuild(sv, true);
+                if (tab == 3) rebuild(sv, true);
             } else if (pick.contains("Remove from ")) {
                 if (activePlaylist != null) {
                     sv.removeFromPlaylist(activePlaylist, t);
@@ -1359,7 +1330,6 @@ final class ConsoleRenderer {
             eqBand = Math.max(0, Math.min(10, (int) ((x - pc.left) / eqCol())));
             long now = System.currentTimeMillis();
             if (eqBand == lastEqTapBand && now - lastEqTapMs < 320L) {
-                // Double-tap any EQ fader to snap cleanly back to 0 dB!
                 sv.setEq(eqBand, 0f);
                 eqBand = -1;
                 lastEqTapBand = -1;
@@ -1390,7 +1360,6 @@ final class ConsoleRenderer {
             if (fxIdx >= 0) {
                 long now = System.currentTimeMillis();
                 if (fxIdx == lastFxTapIdx && now - lastFxTapMs < 320L) {
-                    // Double-tap any Studio FX slider to snap cleanly to its neutral default!
                     switch (fxIdx) {
                         case 0: sv.setPitch(0f); break;
                         case 1: sv.setSpeed(1f); break;
@@ -1482,12 +1451,12 @@ final class ConsoleRenderer {
 
     private void promptSearch(PlayerService sv) {
         ChromeDialog.input(ctx,
-                ctx.getString(tab == 6 ? R.string.dlg_radio_title : R.string.dlg_search_title),
+                ctx.getString(tab == 5 ? R.string.dlg_radio_title : R.string.dlg_search_title),
                 ctx.getString(R.string.dlg_search_hint),
                 query,
                 InputType.TYPE_CLASS_TEXT,
                 q -> {
-                    if (tab == 6) {
+                    if (tab == 5) {
                         if (q.isEmpty()) { loadRadioGenre(0); return; }
                         radioLoading = true;
                         radioMsg = "SEARCHING RADIO...";
@@ -1503,7 +1472,7 @@ final class ConsoleRenderer {
                         });
                     } else {
                         query = q;
-                        if (tab == 2) grp = null;
+                        if (tab == 1) grp = null;
                         rebuild(sv, false);
                         host.invalidate();
                     }
@@ -1530,7 +1499,7 @@ final class ConsoleRenderer {
                             Prefs.streams(ctx, savedStreams);
                         }
                         sv.playStream(t);
-                        if (tab == 6) rebuild(sv, false);
+                        if (tab == 5) rebuild(sv, false);
                         host.invalidate();
                     });
                 });

@@ -5,7 +5,6 @@ import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RadialGradient;
 import android.graphics.RectF;
 import android.graphics.Shader;
 
@@ -32,18 +31,24 @@ final class VisorRenderer {
     private final RectF rArt = new RectF(), rSeek = new RectF(), rTmp = new RectF();
     private final RectF rTour = new RectF(), rLyrics = new RectF(), rHeart = new RectF(), rViz = new RectF();
 
-    private Shader glassBg, glassSheen;
+    private Shader glassBg, glassSheen, seekGrad, lrcOnGrad;
     private RectF cachedRect;
+    private int cachedTheme = -1;
 
     private void ensureShaders(RectF r) {
-        if (cachedRect != null && cachedRect.equals(r)) return;
+        if (cachedRect != null && cachedRect.equals(r) && cachedTheme == Theme.index()) return;
         cachedRect = new RectF(r);
+        cachedTheme = Theme.index();
         glassBg = new LinearGradient(r.left, r.top, r.left, r.bottom,
                 new int[]{0xff0d1e38, 0xff060e1d, 0xff030710},
                 new float[]{0f, 0.52f, 1f}, Shader.TileMode.CLAMP);
         glassSheen = new LinearGradient(r.left, r.top, r.left + r.width() * 0.25f, r.top + r.height() * 0.48f,
-                new int[]{0x38e4f6ff, 0x10a8dcff, 0x00ffffff},
+                new int[]{0x2ee4f6ff, 0x0ca8dcff, 0x00ffffff},
                 new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP);
+        float padX = r.width() * 0.052f;
+        seekGrad = Theme.accentGrad(r.left + padX, r.bottom - 13f, r.right - padX, r.bottom - 13f);
+        float topY = r.top + r.height() * 0.145f;
+        lrcOnGrad = Theme.aquaPillGrad(topY - 14.5f, topY + 5.5f, Theme.primary());
     }
 
     void draw(Canvas c, RectF r, Hud x, Bitmap albumArt, int vizMode, boolean lyricsActive, float tiltX) {
@@ -56,18 +61,10 @@ final class VisorRenderer {
         clip.addRoundRect(r.left + 2, r.top + 2, r.right - 2, r.bottom - 2, rad, rad, Path.Direction.CW);
         c.clipPath(clip);
 
-        // 1. Deep sapphire-obsidian glass base
+        // 1. Deep sapphire-obsidian glass base (zero per-frame gradient allocations!)
         fill.setShader(glassBg);
         fill.setStyle(Paint.Style.FILL);
         fill.clearShadowLayer();
-        c.drawRect(r, fill);
-
-        // 2. Ambient bass-reactive album/theme aura inside the visor
-        float gx = r.centerX() + tiltX * 26f;
-        float gy = r.top + r.height() * 0.36f;
-        float gr = r.width() * (0.60f + 0.14f * x.bass);
-        int haloCol = Theme.alpha(x.accentColor, (int) (36 + 42 * x.bass));
-        fill.setShader(new RadialGradient(gx, gy, gr, haloCol, 0x00000000, Shader.TileMode.CLAMP));
         c.drawRect(r, fill);
         fill.setShader(null);
 
@@ -108,7 +105,7 @@ final class VisorRenderer {
         // [LRC] Synced Lyrics quick pill
         rTmp.set(rr - 88f, topY - 14.5f, rr - 36f, topY + 5.5f);
         if (lyricsActive) {
-            fill.setShader(Theme.aquaPillGrad(rTmp.top, rTmp.bottom, Theme.primary()));
+            fill.setShader(lrcOnGrad);
         } else {
             fill.setColor(0x2c8cc8f0);
         }
@@ -142,10 +139,9 @@ final class VisorRenderer {
                     rArt.centerX() + aw / 2f, rArt.centerY() + ah / 2f);
             c.drawBitmap(albumArt, null, rTmp, bmpPaint);
         }
-        // Subtle glossy Y2K sheen over album tile
-        fill.setShader(Theme.y2kGlossSheen(rArt.top, rArt.centerY()));
+        // Subtle crisp highlight strip over album tile
+        fill.setColor(0x18ffffff);
         c.drawRect(rArt.left, rArt.top, rArt.right, rArt.centerY(), fill);
-        fill.setShader(null);
         c.restore();
 
         stroke.setStrokeWidth(1.8f);
@@ -199,11 +195,9 @@ final class VisorRenderer {
             c.drawLine(sx0, seekY, sx1, seekY, stroke);
             stroke.clearShadowLayer();
         } else if (frac > 0.002f) {
-            stroke.setShader(Theme.accentGrad(l, seekY, rr, seekY));
-            Theme.applyGlow(stroke, 9f, Theme.primary(), 195);
+            stroke.setShader(seekGrad);
             c.drawLine(l, seekY, fx, seekY, stroke);
             stroke.setShader(null);
-            stroke.clearShadowLayer();
         }
 
         fill.setColor(Theme.alpha(Theme.primary(), 105));

@@ -380,13 +380,16 @@ def render_crown_orb(size=148):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--w', type=int, default=1080)
+    ap.add_argument('--ss', type=float, default=1.35, help='Supersample factor for razor-sharp 3D anti-aliasing')
     ap.add_argument('--out', default='app/src/main/assets/skins')
     ap.add_argument('--part', default='all', choices=['all', 'bust', 'ears', 'sprites'])
     A = ap.parse_args()
 
     os.makedirs(A.out, exist_ok=True)
-    W = A.w
-    H = int(round(W * DESIGN_H / DESIGN_W))
+    OUT_W = A.w
+    OUT_H = int(round(OUT_W * DESIGN_H / DESIGN_W))
+    W = int(round(OUT_W * A.ss))
+    H = int(round(OUT_H * A.ss))
     S = W / WORLD_W
     K = DESIGN_W / float(W)
     px_world = 1.0 / S
@@ -401,40 +404,55 @@ def main():
     meta = {}
 
     if A.part in ('all', 'bust'):
-        print(f"[bust] Raymarching 3D Y2K Liquid-Chrome Bust ({W}x{H})...")
+        print(f"[bust] Raymarching 3D Y2K Liquid-Chrome Bust ({W}x{H} -> {OUT_W}x{OUT_H})...", flush=True)
         # Tight bounding mask skips empty sky pixels above crown & outside chest flanks
         bust_mask = lambda X, Y: (Y < 1.66) & (np.abs(X) < 1.60)
         img = raymarch_layer(bust_scene, combined_ao, W, H, x_from_j, y_from_i, px_world,
-                             z_start=2.4, max_dist=4.5, max_steps=72, chunk_rows=48, mask_fn=bust_mask, do_shadow=True)
-        img = finish_y2k(img, bloom=0.28, bloom_thr=0.78, haze=0.025)
+                             z_start=2.4, max_dist=4.5, max_steps=68, eps=0.0010, norm_e=0.0016,
+                             chunk_rows=40, mask_fn=bust_mask, do_shadow=True, workers=4)
+        if A.ss > 1.01:
+            img = downsample_rgba(img, OUT_W, OUT_H)
+        img = finish_y2k(img, bloom=0.20, bloom_thr=0.80, haze=0.006)
         save_rgba(img, os.path.join(A.out, 'bust.png'))
-        print(f"[bust] Saved bust.png in {time.time() - t0:.1f}s")
+        print(f"[bust] Saved bust.png ({OUT_W}x{OUT_H}) in {time.time() - t0:.1f}s", flush=True)
 
     if A.part in ('all', 'ears'):
         t1 = time.time()
+        # Render ear pods at 2x supersampling for razor-sharp speaker bezel rings!
+        EW = int(round(OUT_W * 2.0))
+        EH = int(round(OUT_H * 2.0))
+        ES = EW / WORLD_W
+        EK = DESIGN_W / float(EW)
+        ex_j = lambda j: (j + 0.5 - EW * 0.5) / ES
+        ey_i = lambda i: (YC * ES - (i + 0.5)) / ES
         for side, name in ((-1, 'ear_l'), (1, 'ear_r')):
-            print(f"[ears] Raymarching {name}...")
+            print(f"[ears] Raymarching {name} (2x SSAA)...", flush=True)
             mask_fn = lambda X, Y, s=side: (X * s > 0.72) & (X * s < 1.48) & (np.abs(Y - POD_Y) < 0.82)
-            img = raymarch_layer(pods_scene, combined_ao, W, H, x_from_j, y_from_i, px_world,
-                                 z_start=2.4, max_dist=4.4, max_steps=68, chunk_rows=48, mask_fn=mask_fn, do_shadow=True)
-            img = finish_y2k(img, bloom=0.26, bloom_thr=0.78, haze=0.02)
+            img = raymarch_layer(pods_scene, combined_ao, EW, EH, ex_j, ey_i, 1.0 / ES,
+                                 z_start=2.4, max_dist=4.4, max_steps=84, eps=0.00065, norm_e=0.0012,
+                                 chunk_rows=48, mask_fn=mask_fn, do_shadow=True, workers=4)
             ys, xs = np.where(img[..., 3] > 0.005)
-            pad = max(4, int(round(8 / K)))
-            x0, x1 = max(0, int(xs.min()) - pad), min(W, int(xs.max()) + pad + 1)
-            y0, y1 = max(0, int(ys.min()) - pad), min(H, int(ys.max()) + pad + 1)
+            pad = max(8, int(round(8 / EK)))
+            x0, x1 = max(0, int(xs.min()) - pad), min(EW, int(xs.max()) + pad + 1)
+            y0, y1 = max(0, int(ys.min()) - pad), min(EH, int(ys.max()) + pad + 1)
             crop = img[y0:y1, x0:x1]
+            # Downsample 2x -> 1.35x crisp retina resolution (e.g. ~290x600 px)
+            dst_w = max(1, int(round(crop.shape[1] * 0.68)))
+            dst_h = max(1, int(round(crop.shape[0] * 0.68)))
+            crop = downsample_rgba(crop, dst_w, dst_h)
+            crop = finish_y2k(crop, bloom=0.18, bloom_thr=0.80, haze=0.005)
             save_rgba(crop, os.path.join(A.out, f'{name}.png'))
             meta[name] = dict(
-                x=round(x0 * K, 1), y=round(y0 * K, 1),
-                w=round((x1 - x0) * K, 1), h=round((y1 - y0) * K, 1),
+                x=round(x0 * EK, 1), y=round(y0 * EK, 1),
+                w=round((x1 - x0) * EK, 1), h=round((y1 - y0) * EK, 1),
             )
-        print(f"[ears] Saved ear_l.png & ear_r.png in {time.time() - t1:.1f}s")
+        print(f"[ears] Saved ear_l.png & ear_r.png in {time.time() - t1:.1f}s", flush=True)
 
     if A.part in ('all', 'sprites'):
         t2 = time.time()
-        save_rgba(render_speaker_cone(132), os.path.join(A.out, 'cone.png'))
-        save_rgba(render_crown_orb(144), os.path.join(A.out, 'pearl.png'))
-        print(f"[sprites] Saved cone.png & pearl.png in {time.time() - t2:.1f}s")
+        save_rgba(render_speaker_cone(256), os.path.join(A.out, 'cone.png'))
+        save_rgba(render_crown_orb(256), os.path.join(A.out, 'pearl.png'))
+        print(f"[sprites] Saved 256x256 cone.png & pearl.png in {time.time() - t2:.1f}s", flush=True)
 
     if A.part == 'all':
         ids = ['prev', 'play', 'next', 'list', 'eq', 'fx']

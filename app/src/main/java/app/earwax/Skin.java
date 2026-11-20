@@ -61,7 +61,7 @@ final class Skin {
             s.w = j.getInt("w");
             s.h = j.getInt("h");
             s.full.set(0, 0, s.w, s.h);
-            int maxW = targetPx <= 0 ? s.w : Math.min(s.w, targetPx);
+            int maxW = targetPx <= 0 ? 0 : targetPx;
             s.bmp = decodeMaxW(c, "skins/" + n + ".png", maxW);
             JSONArray a = j.optJSONArray("buttons");
             if (a != null) {
@@ -103,17 +103,17 @@ final class Skin {
                 e.r.set((float) o.getDouble("x"), (float) o.getDouble("y"),
                         (float) (o.getDouble("x") + ew),
                         (float) (o.getDouble("y") + o.getDouble("h")));
-                int earMaxW = Math.max(64, Math.round(ew * maxW / (float) s.w));
+                int earMaxW = maxW <= 0 ? 0 : Math.max(180, Math.round(ew * maxW / (float) s.w));
                 e.bmp = decodeMaxW(c, "skins/" + en + ".png", earMaxW);
                 s.ears.add(e);
             }
             JSONObject co = j.optJSONObject("cone");
             if (co != null) {
                 s.coneW = (float) co.getDouble("w");
-                s.cone = decodeMaxW(c, "skins/cone.png", 144);
+                s.cone = decodeMaxW(c, "skins/cone.png", 256);
             }
             try {
-                s.pearl = decodeMaxW(c, "skins/pearl.png", 148);
+                s.pearl = decodeMaxW(c, "skins/pearl.png", 256);
             } catch (Exception ignored) { }
             return s;
         } catch (Exception e) {
@@ -127,6 +127,22 @@ final class Skin {
         if (pearl != null) pearl.recycle();
         for (Ear e : ears) if (e.bmp != null) e.bmp.recycle();
         bmp = null; cone = null; pearl = null; ears.clear();
+    }
+
+    static Bitmap loadBitmap(Context c, String path, int maxW) {
+        try {
+            return decodeMaxW(c, path, maxW);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    static JSONObject loadJson(Context c, String path) {
+        try {
+            return new JSONObject(readAsset(c, path));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String readAsset(Context c, String path) throws IOException {
@@ -200,8 +216,8 @@ final class Skin {
         T.setTextSize(size);
         T.setColor(col);
         T.setTextAlign(al);
-        if (glow) T.setShadowLayer(size * 0.34f, 0, 0, Theme.alpha(col, 175));
-        else T.clearShadowLayer();
+        // Zero-blur high-FPS text rendering (no expensive setShadowLayer passes!)
+        T.clearShadowLayer();
         c.drawText(s, x, y, T);
     }
 
@@ -285,8 +301,7 @@ final class Skin {
         Q.setStrokeCap(Paint.Cap.ROUND);
         Q.setStrokeJoin(Paint.Join.ROUND);
         Q.setStrokeWidth(Math.max(2.2f, r * 0.13f));
-        if (dropShadow) Q.setShadowLayer(r * 0.22f, 0f, r * 0.08f, 0xaa020814);
-        else Q.clearShadowLayer();
+        Q.clearShadowLayer();
 
         switch (id) {
             case "prev":
@@ -431,6 +446,17 @@ final class Skin {
                 c.drawArc(R1, 40, 280, false, Q);
                 Q.setStyle(Paint.Style.FILL);
                 tri(c, cx + k * 0.2f, cy - k * 1.25f, cx + k * 0.2f, cy - k * 0.45f, cx + k * 1.0f, cy - k * 0.85f);
+                break;
+
+            case "drawers":
+                // Twin 3D Wing Drawers icon (left & right expanding panels + center core)
+                Q.setStyle(Paint.Style.FILL);
+                R1.set(cx - k * 0.30f, cy - k * 0.56f, cx + k * 0.30f, cy + k * 0.56f);
+                c.drawRoundRect(R1, k * 0.16f, k * 0.16f, Q);
+                // Left 3D angled wing arrow
+                tri(c, cx - k * 1.15f, cy, cx - k * 0.54f, cy - k * 0.56f, cx - k * 0.54f, cy + k * 0.56f);
+                // Right 3D angled wing arrow
+                tri(c, cx + k * 1.15f, cy, cx + k * 0.54f, cy - k * 0.56f, cx + k * 0.54f, cy + k * 0.56f);
                 break;
 
             default:

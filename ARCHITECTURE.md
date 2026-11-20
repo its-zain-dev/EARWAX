@@ -6,10 +6,11 @@ EARWAX/
 ├─ app/src/main/
 │  ├─ java/app/earwax/
 │  │  ├─ MainActivity.java            Immersive host, permissions, Battery Whitelist, ACTION_VIEW, low-RAM trim
-│  │  ├─ PlayerService.java           Freeze-proof foreground audio engine: ExoPlayer + ResolvingDataSource + Dsp + ForwardingPlayer/MediaSession + Queue + Playlists + Offline + Lyrics + Popups
+│  │  ├─ PlayerService.java           Freeze-proof foreground audio engine: ExoPlayer + YtDataSource + Dsp + ForwardingPlayer/MediaSession + Premature-Skip Guard + Queue + Playlists + Offline + Lyrics + Popups
 │  │  ├─ Dsp.java                     Zero-GC Media3 BaseAudioProcessor: click-free switch ramp, smooth ducking, 10-band RBJ EQ, Shelves, 3D Width, Schroeder/Freeverb Reverb, Limiter, FFT/Wave/VU
-│  │  ├─ YtMusic.java                 Zero-key YouTube Music InnerTube client (search, moods, Auto-Radio, multi-tier direct audio resolver + prefetch cache)
-│  │  ├─ Downloader.java              Offline YouTube Music M4A audio downloader (app-scoped Music/EARWAX_Offline)
+│  │  ├─ YtDataSource.java            High-speed chunked HTTP Range Media3 DataSource for YouTube Music (zero 403, <1s start, auto-refresh, instant offline handoff)
+│  │  ├─ YtMusic.java                 Zero-key YouTube Music InnerTube client (IOS Tier-1 + ANDROID_VR + Piped/Invidious, search, moods, Auto-Radio, deduplicated prefetch cache)
+│  │  ├─ Downloader.java              Chunked HTTP Range offline YouTube Music M4A downloader with live % progress (Music/EARWAX_Offline)
 │  │  ├─ Lyrics.java                  Open-source LRCLIB time-synced LRC + plain lyrics client with binary-search timestamp sync
 │  │  ├─ Radio.java                   Multi-mirror radio-browser.info client + 8 genres + curated hi-fi stations + playlist link resolver
 │  │  ├─ Library.java                 MediaStore audio scanner (folders, codec, year, size) + 5 sort modes + external URI resolver
@@ -26,9 +27,9 @@ EARWAX/
 │  │  ├─ VisorRenderer.java           Forehead curved chrome-glass visor: album art, 4 visualizers, LRC button, neon seek bar, favorite heart
 │  │  ├─ ConsoleRenderer.java         5-mode chest console: 7-Tab Hub (YT/Songs/Browse/Offline/Favs/Lists/Radio), 10-Band EQ, Studio FX + Keep-Alive, Queue, Synced Lyrics
 │  │  ├─ StageView.java               Main 2.5D interactive stage: parallax bust + specular sheen, pumping ear pods, shockwaves, floating crown orbs, intro & tour
-│  │  ├─ PopupView.java               3 sculpted 3D Y2K floating overlay popups (Cyber Deck, Sonic Orb, Mini-Pill)
+│  │  ├─ PopupView.java               3 HD sculpted 3D Y2K floating overlay popups (Cyber Deck, Sonic Orb, Mini-Pill) + Top button unfolding Twin 3D Left/Right Wing Drawers (Mini YT Music Search/Download + Track Tools/Queue/Lyrics)
 │  │  └─ ChromeDialog.java            Custom Y2K brushed-chrome & glossy Aqua modal dialogs with search history chips
-│  ├─ assets/skins/                   bust, ear_l, ear_r, cone, pearl, whale, orb, pill (*.png + *.json), bg.jpg, logo.png, mark.png
+│  ├─ assets/skins/                   HD bust, ear_l, ear_r, cone, pearl, whale, orb, pill, drawer_l, drawer_r (*.png + *.json), HD bg.jpg, logo.png, mark.png
 │  └─ res/                            Adaptive & legacy launcher icons, obsidian splash, vector notification icons, bilingual EN/AR strings
 ├─ branding/                          512px store icon & 1024x500 feature graphic
 └─ tools/

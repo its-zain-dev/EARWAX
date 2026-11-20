@@ -33,8 +33,8 @@ def pick_font(paths, size):
             return ImageFont.truetype(p, int(size))
     return ImageFont.load_default()
 
-def build_backdrop(path, W=540, H=1170):
-    """Atmospheric Early-2000s Y2K Cyber-Studio Backdrop (deep sapphire/cyan volumetric beams + subtle aurora)."""
+def build_backdrop(path, W=1080, H=2340):
+    """Atmospheric Early-2000s Y2K Cyber-Studio Backdrop (full-HD crisp volumetric studio beams)."""
     Y, X = np.mgrid[0:H, 0:W].astype(np.float32)
     u, v = X / W, Y / H
 
@@ -146,8 +146,8 @@ def main():
     # 1. Backdrop
     build_backdrop(os.path.join(SK, 'bg.jpg'))
 
-    # 2. 3D Chrome Wordmark
-    logo = build_chrome_wordmark('EARWAX', 96)
+    # 2. 3D Chrome Wordmark (high-res retina)
+    logo = build_chrome_wordmark('EARWAX', 164)
     logo.save(os.path.join(SK, 'logo.png'), optimize=True)
     print(f"[brand] Wrote logo.png {logo.size}")
 
@@ -194,9 +194,9 @@ def main():
     mark = comp.crop((max(0, bb[0] - 12), max(0, bb[1] - 12), min(comp.width, bb[2] + 12), min(comp.height, bb[3] + 12)))
     print(f"[brand] Head mark bbox {mark.size}")
 
-    sq = fit_img(mark, 356, 356)
-    sq_img = Image.new('RGBA', (384, 384), (0, 0, 0, 0))
-    sq_img.alpha_composite(sq, ((384 - sq.width) // 2, (384 - sq.height) // 2))
+    sq = fit_img(mark, 476, 476)
+    sq_img = Image.new('RGBA', (512, 512), (0, 0, 0, 0))
+    sq_img.alpha_composite(sq, ((512 - sq.width) // 2, (512 - sq.height) // 2))
     sq_img.save(os.path.join(SK, 'mark.png'), optimize=True)
 
     # 4. Adaptive & Legacy Launcher Icons

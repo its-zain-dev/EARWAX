@@ -28,18 +28,22 @@ def run(cmd):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--fast', action='store_true', help='Render at fast preview resolution')
-    ap.add_argument('--bust-w', type=int, default=780, help='Bust render width in px (aspect 1080:2100)')
-    ap.add_argument('--popup-scale', type=float, default=0.78, help='Popup raymarch scale before LANCZOS')
+    ap.add_argument('--bust-w', type=int, default=1080, help='Bust output width in px (aspect 1080:2100)')
+    ap.add_argument('--bust-ss', type=float, default=1.0, help='Bust supersample factor')
+    ap.add_argument('--popup-scale', type=float, default=1.45, help='Popup output pixel density multiplier')
+    ap.add_argument('--popup-ss', type=float, default=1.0, help='Popup supersample factor')
     A = ap.parse_args()
 
-    bust_w = 420 if A.fast else A.bust_w
-    pop_s = 0.45 if A.fast else A.popup_scale
+    bust_w = 540 if A.fast else A.bust_w
+    bust_ss = 1.0 if A.fast else A.bust_ss
+    pop_s = 0.75 if A.fast else A.popup_scale
+    pop_ss = 1.0 if A.fast else A.popup_ss
 
     t0 = time.time()
-    run([sys.executable, os.path.join(HERE, 'build_bust.py'), '--w', str(bust_w), '--out', SKINS])
-    run([sys.executable, os.path.join(HERE, 'build_popups.py'), '--scale', str(pop_s), '--out', SKINS])
+    run([sys.executable, os.path.join(HERE, 'build_bust.py'), '--w', str(bust_w), '--ss', str(bust_ss), '--out', SKINS])
+    run([sys.executable, os.path.join(HERE, 'build_popups.py'), '--scale', str(pop_s), '--ss', str(pop_ss), '--out', SKINS])
     run([sys.executable, os.path.join(HERE, 'build_brand.py')])
-    print(f"[build_all] Complete EARWAX 4.0 3D asset suite built in {time.time() - t0:.1f}s!")
+    print(f"[build_all] Complete EARWAX 4.5 Hi-Res 3D asset suite built in {time.time() - t0:.1f}s!")
 
 
 if __name__ == '__main__':

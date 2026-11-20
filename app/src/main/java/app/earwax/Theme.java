@@ -127,6 +127,7 @@ final class Theme {
     }
 
     static void applyGlow(Paint p, float radius, int color, int alphaVal) {
-        p.setShadowLayer(radius, 0, 0, alpha(color, alphaVal));
+        // Lightweight zero-blur mode: avoids GPU/software shadow-layer stalls on Android!
+        p.clearShadowLayer();
     }
 }

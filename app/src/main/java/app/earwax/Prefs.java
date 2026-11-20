@@ -47,7 +47,7 @@ final class Prefs {
     static int vizMode(Context c) { return sp(c).getInt("viz", 0); }
     static void vizMode(Context c, int m) { sp(c).edit().putInt("viz", m).apply(); }
 
-    static boolean gyro(Context c) { return sp(c).getBoolean("gyro", true); }
+    static boolean gyro(Context c) { return sp(c).getBoolean("gyro", false); }
     static void gyro(Context c, boolean on) { sp(c).edit().putBoolean("gyro", on).apply(); }
 
     static int sortMode(Context c) { return sp(c).getInt("sort", 0); }
