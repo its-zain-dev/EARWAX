@@ -942,6 +942,8 @@ final class ConsoleRenderer {
 
     private void drawFx(Canvas c, PlayerService sv, GyroParallax gyro) {
         Skin.text(c, "STUDIO DSP & ENGINE", pc.left + 4, pc.top + 33f, 21.5f, Theme.TEXT_MAIN, Paint.Align.LEFT, Theme.TF_BOLD, false);
+        tmp.set(pc.right - 294, pc.top + 6, pc.right - 144, pc.top + 44);
+        drawChipColored(c, tmp, AppUpdater.installedVersionLabel(ctx) + " ↻", true, Theme.primary());
         tmp.set(pc.right - 134, pc.top + 6, pc.right, pc.top + 44);
         drawChip(c, tmp, "RESET FX", false);
 
@@ -1357,6 +1359,14 @@ final class ConsoleRenderer {
     void fxTouch(PlayerService sv, GyroParallax gyro, float x, float y, boolean first) {
         if (first) {
             fxIdx = -1;
+            tmp.set(pc.right - 294, pc.top + 6, pc.right - 144, pc.top + 44);
+            if (tmp.contains(x, y)) {
+                host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                if (ctx instanceof android.app.Activity) {
+                    AppUpdater.checkManual((android.app.Activity) ctx);
+                }
+                return;
+            }
             tmp.set(pc.right - 134, pc.top + 6, pc.right, pc.top + 44);
             if (tmp.contains(x, y)) {
                 sv.setPitch(0f); sv.setSpeed(1f); sv.setBass(0f); sv.setTreble(0f); sv.setWidth(1f); sv.setReverb(0);

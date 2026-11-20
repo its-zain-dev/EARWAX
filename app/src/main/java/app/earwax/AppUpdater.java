@@ -55,7 +55,7 @@ final class AppUpdater {
             "https://github.com/" + REPO + "/releases/latest/download/version.json";
     private static final String RELEASES_API_URL =
             "https://api.github.com/repos/" + REPO + "/releases/latest";
-    private static final long RECHECK_INTERVAL_MS = 2 * 60_000L; // 2 minutes
+    private static final long RECHECK_INTERVAL_MS = 15_000L; // 15 seconds between successful checks
     private static final Pattern VC_BODY_PAT = Pattern.compile("versionCode\\s*=\\s*(\\d+)");
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -94,9 +94,28 @@ final class AppUpdater {
 
     private AppUpdater() { }
 
+    static String installedVersionLabel(Context c) {
+        try {
+            PackageInfo pi = c.getPackageManager().getPackageInfo(c.getPackageName(), 0);
+            return "v" + (pi.versionName == null ? "?" : pi.versionName);
+        } catch (Exception e) {
+            return "v?";
+        }
+    }
+
     static void checkOnEnter(Activity act) {
         if (act == null) return;
         triggerCheck(act, false);
+    }
+
+    static void checkManual(Activity act) {
+        if (act == null) return;
+        if (downloading) {
+            Toast.makeText(act, "Update is already downloading…", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(act, "Checking GitHub for updates…", Toast.LENGTH_SHORT).show();
+        triggerCheck(act, true);
     }
 
     static void onResume(Activity act) {
@@ -110,10 +129,6 @@ final class AppUpdater {
                 return;
             }
         }
-        long now = System.currentTimeMillis();
-        if (lastCheckMs > 0 && now - lastCheckMs >= RECHECK_INTERVAL_MS) {
-            triggerCheck(act, false);
-        }
     }
 
     private static void triggerCheck(Activity act, boolean manual) {
@@ -122,7 +137,6 @@ final class AppUpdater {
         if (!manual && lastCheckMs > 0 && now - lastCheckMs < RECHECK_INTERVAL_MS) return;
 
         checking = true;
-        lastCheckMs = now;
         final WeakReference<Activity> ref = new WeakReference<>(act);
         final Context app = act.getApplicationContext();
 
@@ -133,7 +147,19 @@ final class AppUpdater {
                 String localName = pi.versionName == null ? "0" : pi.versionName;
 
                 ReleaseInfo rel = fetchLatestRelease();
-                if (rel == null || rel.apkUrl.isEmpty()) return;
+                if (rel == null || rel.apkUrl.isEmpty()) {
+                    if (manual) {
+                        MAIN.post(() -> {
+                            Activity a = ref.get();
+                            if (a != null && !a.isFinishing()) {
+                                Toast.makeText(a, "Could not reach GitHub — check internet", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                    return;
+                }
+                // Only stamp cooldown after a successful network check!
+                lastCheckMs = System.currentTimeMillis();
 
                 boolean hasUpdate = rel.versionCode > 0
                         ? rel.versionCode > localCode
@@ -141,6 +167,15 @@ final class AppUpdater {
 
                 if (!hasUpdate) {
                     cleanupOldApks(app);
+                    if (manual) {
+                        final String cur = localName;
+                        MAIN.post(() -> {
+                            Activity a = ref.get();
+                            if (a != null && !a.isFinishing()) {
+                                Toast.makeText(a, "EARWAX is up to date (v" + cur + ")", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
                     return;
                 }
                 if (!manual && rel.versionCode > 0 && rel.versionCode == lastPromptedCode && awaitingInstallPermission) {
@@ -155,6 +190,14 @@ final class AppUpdater {
                     }
                 });
             } catch (Exception ignored) {
+                if (manual) {
+                    MAIN.post(() -> {
+                        Activity a = ref.get();
+                        if (a != null && !a.isFinishing()) {
+                            Toast.makeText(a, "Update check failed — retry", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
             } finally {
                 checking = false;
             }
@@ -162,9 +205,9 @@ final class AppUpdater {
     }
 
     private static ReleaseInfo fetchLatestRelease() {
-        // 1. Rate-limit-free direct version.json asset on latest release
+        // 1. Rate-limit-free direct version.json asset on latest release (cache-busted + generous mobile timeout)
         try {
-            String raw = readUrlText(VERSION_JSON_URL, 6500);
+            String raw = readUrlText(VERSION_JSON_URL + "?t=" + System.currentTimeMillis(), 15_000);
             if (raw != null && !raw.isEmpty()) {
                 JSONObject o = new JSONObject(raw);
                 long vc = o.optLong("versionCode", -1L);
@@ -179,7 +222,7 @@ final class AppUpdater {
 
         // 2. Fallback to GitHub Releases API
         try {
-            String raw = readUrlText(RELEASES_API_URL, 7500);
+            String raw = readUrlText(RELEASES_API_URL, 15_000);
             if (raw == null || raw.isEmpty()) return null;
             JSONObject o = new JSONObject(raw);
             String tag = o.optString("tag_name", "");
@@ -470,9 +513,11 @@ final class AppUpdater {
         for (int hop = 0; hop < maxHops; hop++) {
             HttpURLConnection c = (HttpURLConnection) new URL(current).openConnection();
             c.setInstanceFollowRedirects(false);
+            c.setUseCaches(false);
             c.setConnectTimeout(connMs);
             c.setReadTimeout(readMs);
             c.setRequestProperty("User-Agent", "EARWAX-Updater");
+            c.setRequestProperty("Cache-Control", "no-cache");
             c.setRequestProperty("Accept", "*/*");
             int code = c.getResponseCode();
             if (code == HttpURLConnection.HTTP_MOVED_PERM

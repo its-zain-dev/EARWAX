@@ -53,6 +53,11 @@ public class MainActivity extends Activity {
         }
 
         handleIntent(getIntent());
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
         AppUpdater.checkOnEnter(this);
     }
 
