@@ -88,8 +88,13 @@ final class Track {
     }
 
     static Track offlineYtm(Track orig, String filePath) {
+        return offlineYtm(orig, filePath, "OFFLINE", 128);
+    }
+
+    static Track offlineYtm(Track orig, String filePath, String codec, int bitrate) {
+        String c = (codec == null || codec.isEmpty()) ? "OFFLINE" : codec;
         return new Track(SOURCE_OFFLINE, -1, orig.title, orig.artist, orig.album, orig.dur,
-                null, "OFFLINE", 128, "", orig.ytId, orig.thumbUrl, filePath);
+                null, c, Math.max(32, bitrate), "", orig.ytId, orig.thumbUrl, filePath);
     }
 
     static Track stream(String name, String sub, String url) {
@@ -217,7 +222,12 @@ final class Track {
 
     String formatBadge() {
         if (source == SOURCE_YTM) return "YT MUSIC";
-        if (source == SOURCE_OFFLINE) return "OFFLINE";
+        if (source == SOURCE_OFFLINE) {
+            if (!codec.isEmpty() && !"OFFLINE".equals(codec) && bitrate > 0) {
+                return "OFFLINE • " + codec + " " + bitrate + "k";
+            }
+            return "OFFLINE";
+        }
         if (source == SOURCE_RADIO) {
             StringBuilder sb = new StringBuilder("LIVE");
             if (!codec.isEmpty()) sb.append(" • ").append(codec);

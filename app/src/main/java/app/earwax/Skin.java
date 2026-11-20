@@ -27,9 +27,9 @@ final class Skin {
     static final class Dial { float cx, cy, r0, r1, a0, a1; }
     static final class Ear { Bitmap bmp; final RectF r = new RectF(); boolean left; }
 
-    static final Paint P = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    static final Paint P = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private static final Paint Q = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private static final Paint T = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static final Paint T = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG | Paint.LINEAR_TEXT_FLAG);
     private static final Path PATH = new Path();
     private static final RectF R1 = new RectF();
 
@@ -179,6 +179,9 @@ final class Skin {
                     Math.max(1, Math.round(b.getHeight() * k)), true);
             if (sc != b) b.recycle();
             b = sc;
+        }
+        if (b != null) {
+            try { b.setHasMipMap(true); } catch (Exception ignored) { }
         }
         return b;
     }

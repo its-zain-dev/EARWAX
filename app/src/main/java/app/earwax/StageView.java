@@ -346,10 +346,11 @@ final class StageView extends View implements PlayerService.Listener {
         }
         c.restore();
 
-        // B. Sculpted 3D Liquid-Chrome Ear Speaker Pods (subtle bass excursion only, zero wobble!)
+        // B. Legacy separate Ear Pods (skipped when unified bust.png already fuses the ears in 3D!)
         float earPx = gyro.isEnabled() ? gyro.x * 8f : 0f;
         float earPy = gyro.isEnabled() ? gyro.y * 6f : 0f;
-        float shake = x.playing ? 2.0f * x.env[0] : 0f;
+        boolean hasSeparateEars = !head.ears.isEmpty();
+        float shake = (hasSeparateEars && x.playing) ? 2.0f * x.env[0] : 0f;
         for (Skin.Ear e : head.ears) {
             float dx = earPx + (e.left ? -shake : shake);
             c.save();
@@ -358,14 +359,16 @@ final class StageView extends View implements PlayerService.Listener {
             c.restore();
         }
 
-        // C. Six Metallic Speaker Cone Drivers + Crisp Vector Controls
+        // C. Six Metallic Speaker Cone Drivers + Crisp Vector Controls (locked cleanly inside unified 3D ear sockets!)
+        float coneOffX = hasSeparateEars ? earPx : pxBust;
+        float coneOffY = hasSeparateEars ? earPy : pyBust;
         for (Skin.Btn b : head.btns) {
             int band = coneBand(b.id);
             if (band < 0) continue;
             boolean isLeft = b.cx < 540f;
-            float dx = earPx + (isLeft ? -shake : shake);
+            float dx = coneOffX + (isLeft ? -shake : shake);
             float bx = b.cx + dx;
-            float by = b.cy + earPy;
+            float by = b.cy + coneOffY;
             float env = x.playing ? x.env[band] : 0f;
             float press = (down == b) ? 0.91f : 1f;
             boolean active = ("list".equals(b.id) && (console.mode == 0 || console.mode == 3 || console.mode == 4))

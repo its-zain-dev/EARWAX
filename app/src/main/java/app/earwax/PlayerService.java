@@ -113,7 +113,7 @@ public final class PlayerService extends Service {
     final Set<String> offlineYtIds = new HashSet<>();
 
     String queueKey = "", err = "";
-    int tool, chan, sleepMin, presetIdx, xfadeSec;
+    int tool, chan, sleepMin, presetIdx, xfadeSec, audioQuality;
     int libVer, favVer, recVer, plVer, queueVer, offVer;
     boolean sleepEndOfTrack, ignoreFocus, ytAutoRadio = true;
     float vol = 1f, pitch = 0f, speed = 1f, sleepF = 0f;
@@ -299,6 +299,8 @@ public final class PlayerService extends Service {
         artAccent = Theme.primary();
         ignoreFocus = Prefs.ignoreFocus(this);
         ytAutoRadio = Prefs.ytAutoRadio(this);
+        audioQuality = Prefs.audioQuality(this);
+        YtMusic.setQuality(audioQuality);
 
         nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) {
@@ -752,6 +754,36 @@ public final class PlayerService extends Service {
         ytAutoRadio = !ytAutoRadio;
         Prefs.ytAutoRadio(this, ytAutoRadio);
         notifyListeners();
+    }
+
+    String audioQualityShort() {
+        int q = Math.max(0, Math.min(YtMusic.QUALITY_SHORT.length - 1, audioQuality));
+        return YtMusic.QUALITY_SHORT[q];
+    }
+
+    void setAudioQuality(int q) {
+        q = Math.max(YtMusic.QUALITY_ULTRA, Math.min(YtMusic.QUALITY_LOW, q));
+        audioQuality = q;
+        Prefs.audioQuality(this, q);
+        YtMusic.setQuality(q);
+        // Immediately switch active online YouTube Music playback to the newly selected quality!
+        Track cur = current();
+        if (pl != null && cur != null && cur.isYouTube() && !isOffline(cur)) {
+            int idx = Math.max(0, pl.getCurrentMediaItemIndex());
+            long pos = Math.max(0L, pl.getCurrentPosition());
+            boolean wasPlaying = shouldBePlaying || pl.isPlaying();
+            YtMusic.invalidateCache(cur.ytId);
+            dsp.triggerSmoothSwitch();
+            pl.seekTo(idx, pos);
+            pl.prepare();
+            if (wasPlaying) pl.play();
+        }
+        prefetchNeighbors();
+        notifyListeners();
+    }
+
+    void cycleAudioQuality() {
+        setAudioQuality((audioQuality + 1) % YtMusic.QUALITY_SHORT.length);
     }
 
     // ------------------------------------------------------------------ Persistence helpers
@@ -1593,8 +1625,11 @@ public final class PlayerService extends Service {
             String sr = dsp.sampleRate >= 48000 ? (dsp.sampleRate / 1000) + "kHz" : "44.1k";
             if (t.isYouTube() && isOffline(t)) {
                 x.badge = "OFFLINE • " + sr;
+            } else if (t.isOfflineYtm()) {
+                x.badge = t.formatBadge() + " • " + sr;
             } else if (t.isYouTube()) {
-                x.badge = "YT MUSIC • " + sr;
+                YtMusic.ResolvedStream rs = YtMusic.lastResolved(t.ytId);
+                x.badge = rs != null ? ("YT • " + rs.qualityBadge()) : ("YT • " + audioQualityShort() + " • " + sr);
             } else if (t.isRadio()) {
                 x.badge = t.formatBadge();
             } else {

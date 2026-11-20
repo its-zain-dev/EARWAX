@@ -44,7 +44,18 @@ final class Downloader {
     static File fileFor(Context c, String ytId) {
         if (ytId == null || ytId.isEmpty()) return null;
         String safe = ytId.replaceAll("[^A-Za-z0-9_-]", "");
-        return new File(offlineDir(c), safe + ".m4a");
+        File dir = offlineDir(c);
+        File webm = new File(dir, safe + ".webm");
+        if (webm.exists() && webm.length() > 4096) return webm;
+        File m4a = new File(dir, safe + ".m4a");
+        if (m4a.exists() && m4a.length() > 4096) return m4a;
+        return m4a;
+    }
+
+    private static File fileForMime(Context c, String ytId, String mimeType) {
+        String safe = ytId.replaceAll("[^A-Za-z0-9_-]", "");
+        boolean isWebm = mimeType != null && mimeType.toLowerCase(java.util.Locale.ROOT).contains("webm");
+        return new File(offlineDir(c), safe + (isWebm ? ".webm" : ".m4a"));
     }
 
     static boolean isDownloaded(Context c, Track t) {
@@ -78,17 +89,16 @@ final class Downloader {
         notifyUi();
 
         POOL.execute(() -> {
-            File dest = fileFor(app, ytId);
-            File tmp = new File(dest.getParentFile(), ytId.replaceAll("[^A-Za-z0-9_-]", "") + ".part");
+            final int quality = Prefs.audioQuality(app);
+            String safeId = ytId.replaceAll("[^A-Za-z0-9_-]", "");
+            File tmp = new File(offlineDir(app), safeId + ".part");
             try {
-                YtMusic.ResolvedStream rs = YtMusic.resolveAudioSync(ytId, false);
-                if (rs == null || rs.url == null || rs.url.isEmpty()) {
-                    rs = YtMusic.resolveAudioSync(ytId, true);
-                }
+                YtMusic.ResolvedStream rs = YtMusic.resolveAudioSync(ytId, true, quality);
                 if (rs == null || rs.url == null || rs.url.isEmpty()) {
                     MAIN.post(() -> cb.onDone(null, "STREAM UNAVAILABLE"));
                     return;
                 }
+                File dest = fileForMime(app, ytId, rs.mimeType);
 
                 long total = rs.contentLength;
                 long downloaded = 0L;
@@ -110,7 +120,7 @@ final class Downloader {
                         for (int attempt = 0; attempt < 3; attempt++) {
                             if (attempt >= 1) {
                                 YtMusic.invalidateCache(ytId);
-                                YtMusic.ResolvedStream fresh = YtMusic.resolveAudioSync(ytId, true);
+                                YtMusic.ResolvedStream fresh = YtMusic.resolveAudioSync(ytId, true, quality);
                                 if (fresh != null && fresh.url != null && !fresh.url.isEmpty()) {
                                     rs = fresh;
                                     if (fresh.contentLength > 0) total = fresh.contentLength;
@@ -123,7 +133,7 @@ final class Downloader {
                             HttpURLConnection conn = null;
                             try {
                                 boolean isGv = rs.url.contains("googlevideo.com");
-                                boolean useRangeQuery = isGv && total > 0;
+                                boolean useRangeQuery = isGv && rs.progressive && total > 0;
                                 String reqUrl = useRangeQuery ? YtMusic.withRangeParam(rs.url, start, end) : rs.url;
                                 conn = (HttpURLConnection) new URL(reqUrl).openConnection();
                                 conn.setInstanceFollowRedirects(true);
@@ -202,12 +212,14 @@ final class Downloader {
                     MAIN.post(() -> cb.onDone(null, "DOWNLOAD INCOMPLETE"));
                     return;
                 }
+                // Remove any previous quality file (.m4a or .webm) before moving the new file in place
+                deleteOffline(app, track);
                 if (dest.exists()) dest.delete();
                 if (!tmp.renameTo(dest)) {
                     MAIN.post(() -> cb.onDone(null, "STORAGE ERROR"));
                     return;
                 }
-                Track offline = Track.offlineYtm(track, dest.getAbsolutePath());
+                Track offline = Track.offlineYtm(track, dest.getAbsolutePath(), rs.codec, rs.bitrateKbps);
                 MAIN.post(() -> cb.onDone(offline, null));
             } catch (Exception e) {
                 if (tmp.exists()) tmp.delete();
@@ -238,7 +250,10 @@ final class Downloader {
 
     static boolean deleteOffline(Context c, Track t) {
         if (t == null || t.ytId == null || t.ytId.isEmpty()) return false;
-        File f = fileFor(c, t.ytId);
-        return f != null && f.exists() && f.delete();
+        String safe = t.ytId.replaceAll("[^A-Za-z0-9_-]", "");
+        File dir = offlineDir(c);
+        boolean d1 = new File(dir, safe + ".m4a").delete();
+        boolean d2 = new File(dir, safe + ".webm").delete();
+        return d1 || d2;
     }
 }

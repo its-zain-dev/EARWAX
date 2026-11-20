@@ -63,6 +63,9 @@ final class Prefs {
     static boolean ytAutoRadio(Context c) { return sp(c).getBoolean("yt_autoradio", true); }
     static void ytAutoRadio(Context c, boolean on) { sp(c).edit().putBoolean("yt_autoradio", on).apply(); }
 
+    static int audioQuality(Context c) { return sp(c).getInt("audio_quality", 0); }
+    static void audioQuality(Context c, int q) { sp(c).edit().putInt("audio_quality", Math.max(0, Math.min(3, q))).apply(); }
+
     // ---- Floating Popup
     static String popupName(Context c) { return sp(c).getString("pname", "whale"); }
     static void popupName(Context c, String n) { sp(c).edit().putString("pname", n).apply(); }

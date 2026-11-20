@@ -216,8 +216,8 @@ final class YtDataSource extends BaseDataSource {
 
             try {
                 boolean isGoogleVideo = stream.url.contains("googlevideo.com");
-                // When totalLength is unknown, use HTTP Range header so googlevideo returns 206 + Content-Range with exact total size!
-                boolean useRangeQuery = isGoogleVideo && totalLength > 0;
+                // Use HTTP Range header for adaptive streams & when totalLength is unknown (returns 206 + Content-Range!)
+                boolean useRangeQuery = isGoogleVideo && stream.progressive && totalLength > 0;
                 String reqUrl = useRangeQuery ? YtMusic.withRangeParam(stream.url, start, end) : stream.url;
                 HttpURLConnection c = (HttpURLConnection) new URL(reqUrl).openConnection();
                 c.setInstanceFollowRedirects(true);

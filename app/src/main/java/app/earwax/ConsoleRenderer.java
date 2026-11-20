@@ -930,7 +930,7 @@ final class ConsoleRenderer {
 
     private RectF fxRelChip(int idx) {
         float y = pc.bottom - 116f;
-        float cw = (pc.width() - 16f) / 3f;
+        float cw = (pc.width() - 24f) / 4f;
         float x = pc.left + idx * (cw + 8f);
         tmp.set(x, y, x + cw, y + 42f);
         return tmp;
@@ -986,9 +986,10 @@ final class ConsoleRenderer {
         drawChip(c, fxStudioChip(4), "SLP " + sv.sleepLabel(), sv.sleepMin > 0 || sv.sleepEndOfTrack);
 
         boolean whitelisted = MainActivity.isBatteryWhitelisted(ctx);
-        drawChipColored(c, fxRelChip(0), sv.ignoreFocus ? "NO-STOP: ON" : "NO-STOP: AUTO", sv.ignoreFocus, Theme.OFF_BADGE);
-        drawChipColored(c, fxRelChip(1), sv.ytAutoRadio ? "YT RADIO: ON" : "YT RADIO: OFF", sv.ytAutoRadio, Theme.YT_BADGE);
-        drawChipColored(c, fxRelChip(2), whitelisted ? "KEEP ALIVE ✓" : "KEEP ALIVE !", whitelisted, Theme.OFF_BADGE);
+        drawChipColored(c, fxRelChip(0), sv.ignoreFocus ? "NO-STOP ON" : "NO-STOP", sv.ignoreFocus, Theme.OFF_BADGE);
+        drawChipColored(c, fxRelChip(1), sv.ytAutoRadio ? "YT RADIO" : "RADIO OFF", sv.ytAutoRadio, Theme.YT_BADGE);
+        drawChipColored(c, fxRelChip(2), "QTY: " + sv.audioQualityShort(), true, Theme.primary());
+        drawChipColored(c, fxRelChip(3), whitelisted ? "ALIVE ✓" : "ALIVE !", whitelisted, Theme.OFF_BADGE);
 
         float ty = themeRowY();
         Skin.text(c, "THEME", pc.left + 4, ty + 6f, 16.5f, Theme.TEXT_SUB, Paint.Align.LEFT, Theme.TF_BOLD, false);
@@ -1230,7 +1231,14 @@ final class ConsoleRenderer {
         opts.add("▶  Play Next");
         opts.add("+  Add to Queue");
         if (isYt) opts.add("◎  Start YT Auto-Radio Mix");
-        if (isYt) opts.add(isOff ? "✕  Delete Offline File" : "↓  Download for Offline");
+        if (isYt) {
+            if (isOff) {
+                opts.add("↓  Re-download (" + sv.audioQualityShort() + ")");
+                opts.add("✕  Delete Offline File");
+            } else {
+                opts.add("↓  Download (" + sv.audioQualityShort() + ")");
+            }
+        }
         opts.add(isFav ? "♥  Remove Favourite" : "♡  Add to Favourites");
         opts.add(activePlaylist != null ? "✕  Remove from " + activePlaylist.name : "+  Add to Playlist…");
         opts.add("ⓘ  Track Details");
@@ -1246,10 +1254,11 @@ final class ConsoleRenderer {
             } else if (pick.contains("Auto-Radio")) {
                 sv.playYtWithRadio(t);
                 Toast.makeText(ctx, "Building YT Auto-Radio queue…", Toast.LENGTH_SHORT).show();
-            } else if (pick.contains("Download for Offline")) {
-                Toast.makeText(ctx, "Downloading offline…", Toast.LENGTH_SHORT).show();
+            } else if (pick.contains("Download (") || pick.contains("Re-download (")) {
+                Toast.makeText(ctx, "Downloading (" + sv.audioQualityShort() + ")…", Toast.LENGTH_SHORT).show();
                 sv.downloadTrack(t, (off, err) -> {
-                    Toast.makeText(ctx, err != null ? err : ("Saved offline: " + t.title), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ctx, err != null ? err : ("Saved (" + sv.audioQualityShort() + "): " + t.title), Toast.LENGTH_SHORT).show();
+                    rebuild(sv, true);
                     host.invalidate();
                 });
             } else if (pick.contains("Delete Offline")) {
@@ -1396,6 +1405,21 @@ final class ConsoleRenderer {
                     return;
                 }
                 if (fxRelChip(2).contains(x, y)) {
+                    host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                    String[] opts = new String[YtMusic.QUALITY_LABELS.length];
+                    for (int q = 0; q < YtMusic.QUALITY_LABELS.length; q++) {
+                        opts[q] = (q == sv.audioQuality ? "✓  " : "    ") + YtMusic.QUALITY_LABELS[q];
+                    }
+                    ChromeDialog.actions(ctx, "YouTube & Offline Audio Quality",
+                            "Applies to streaming playback & offline downloads",
+                            opts, pick -> {
+                                sv.setAudioQuality(pick);
+                                Toast.makeText(ctx, "Audio Quality: " + YtMusic.QUALITY_LABELS[pick], Toast.LENGTH_SHORT).show();
+                                host.invalidate();
+                            });
+                    return;
+                }
+                if (fxRelChip(3).contains(x, y)) {
                     MainActivity.requestBatteryWhitelist(ctx);
                     host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     return;

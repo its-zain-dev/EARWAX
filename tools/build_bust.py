@@ -1,11 +1,12 @@
-"""EARWAX 4.0 — Pure Python 3D Raymarched Early-2000s Liquid-Chrome Cyber-Bust Generator (v2 Polished).
+"""EARWAX 4.6 — Pure Python Unified 3D Raymarched Early-2000s Liquid-Chrome Cyber-Bust Generator.
 
-Fixes all preview geometry issues:
-  - Zero x=0 center symmetry seam (smooth symmetric blending across midline!)
-  - Smooth Sorayama-inspired classical chrome facial sculpture (no sharp cheek dent!)
-  - Sculpted chrome shoulders & clavicles sitting cleanly ABOVE the recessed chest console frame!
-  - Cleanly beveled 3-driver headphone ear pods with electric-cyan light-pipe spines (no micro-ring aliasing!)
-  - 4-core multi-threaded NumPy evaluation (~3.5x faster!)
+Unified single-pass 3D sculpture:
+  - ONE continuous analytical 3D SDF fuses Head, Curved Visor, Sculpted Temple Yokes,
+    3-Driver Ear Speaker Pods, Anatomical Neck, Collarbones, Shoulders & Chest Armor
+    with smooth metallic fillets, unified HDRI chrome reflections, true 3D shadows & AO.
+  - Zero pasted/separate ear PNG layers (no mismatched dimensions, seams, or floating stickers!).
+  - Zero neck-to-head or neck-to-chest discontinuities (wide continuous transition domain).
+  - 4-core multi-process NumPy raymarching with supersampling for razor-sharp chrome edges.
 """
 
 import argparse
@@ -33,8 +34,8 @@ Y_NOSE_TIP = -0.25
 Y_MOUTH = -0.58
 Y_CHIN = -0.88
 
-# Ear Speaker Pods (3 graduated acoustic drivers tucked smoothly to temples)
-POD_X = 1.04
+# Ear Speaker Pods (organically sculpted & smoothly fused into the temples in 3D!)
+POD_X = 0.99
 POD_Y = 0.22
 CONES = [
     (-1, POD_Y + 0.37, 0.118, 0.138),  # top tweeter
@@ -54,40 +55,70 @@ CROWN_ORBS = [
 ]
 
 # Chest Console Panel — cleanly framed INSIDE the sculpted chrome chest armor!
-# Shoulder top starts around y = -1.60 (px ~ 1190); chest panel top starts at px = 1280 (y = -1.872),
-# bottom at px = 1952 (y = -3.894), leaving ~90px of sculpted chrome chest lip above & 148px chrome chin + vents below!
 PANEL_PX = dict(x=126, y=1280, w=828, h=672, r=50)
 PANEL_CY = YC - (PANEL_PX['y'] + PANEL_PX['h'] * 0.5) / S0   # -2.883
 PANEL_HX = (PANEL_PX['w'] * 0.5) / S0                        # 1.246
 PANEL_HY = (PANEL_PX['h'] * 0.5) / S0                        # 1.011
 CHEST_FRONT = 0.44
 
-# ------------------------------------------------------------------ 3D Sculpted Head & Bust SDF (Sorayama Liquid-Chrome Anatomy!)
+
+# ------------------------------------------------------------------ 3D Ear Pods Sub-SDF (welded directly into head_sdf!)
+def pods_shell_sdf(x, y, z):
+    ax = np.abs(x)
+    curve_x = 0.036 * np.cos((y - POD_Y) * 2.3)
+    w_taper = 0.028 * sstep(0.35, -0.45, y - POD_Y)
+    d = sd_extruded_rrect(ax, y, z, (POD_X + curve_x, POD_Y, 0.04), 0.222 + w_taper, 0.620, 0.25, 0.212, 0.122)
+
+    # Organic sculpted upper, middle & lower chrome temple yoke bridges flowing seamlessly into cranium
+    bridge_main = sd_ellipsoid(ax, y, z, (POD_X - 0.16, POD_Y, 0.01), (0.20, 0.48, 0.24))
+    bridge_top = sd_taper_capsule(ax, y, z, (0.68, POD_Y + 0.48, 0.02), (POD_X - 0.02, POD_Y + 0.40, 0.06), 0.15, 0.14)
+    bridge_bot = sd_taper_capsule(ax, y, z, (0.64, POD_Y - 0.38, 0.02), (POD_X - 0.02, POD_Y - 0.40, 0.06), 0.15, 0.14)
+    d = smin(d, bridge_main, 0.12)
+    d = smin(d, bridge_top, 0.10)
+    d = smin(d, bridge_bot, 0.10)
+    return d
+
+
+def carve_pod_details(d, x, y, z):
+    ax = np.abs(x)
+    # Recessed optical groove along outer spine for embedded cyan light-pipe
+    sp_y = np.clip(y - POD_Y, -0.38, 0.38)
+    sp_cx = POD_X + 0.206 + 0.036 * np.cos(sp_y * 2.3) + 0.028 * sstep(0.35, -0.45, sp_y)
+    spine_groove = np.sqrt((ax - sp_cx) ** 2 + (y - (POD_Y + sp_y)) ** 2 + (z - 0.145) ** 2) - 0.028
+    d = smax(d, -spine_groove, 0.014)
+
+    # 3 deep, generously chamfered acoustic speaker sockets
+    for sx, cy, cone_r, sock_r in CONES:
+        rho = np.sqrt((x - sx * POD_X) ** 2 + (y - cy) ** 2)
+        cav = np.maximum(rho - (sock_r + 0.008), 0.155 - z)
+        d = smax(d, -cav, 0.028)
+    return d
+
+
+# ------------------------------------------------------------------ 3D Sculpted Head, Fused Ears & Continuous Neck SDF
 def head_sdf(x, y, z):
-    # 1. Classical Sculpted Cranium & Tapered Face Plane (silky continuous contour, zero midline seam!)
-    d = sd_ellipsoid(x, y, z, (0.0, 0.58, -0.05), (0.85, 0.95, 0.86))
-    # Smooth brow & malar mid-face volume
-    d = smin(d, sd_ellipsoid(x, y, z, (0.0, 0.02, 0.06), (0.77, 0.48, 0.72)), 0.28)
-    # Graceful tapered lower face / jaw oval (continuous V-taper — ZERO cheek bumps!)
-    jaw_w = 0.64 - 0.34 * sstep(-0.10, -0.90, y)
+    # 1. Classical Sculpted Cranium & Tapered Face Plane (zero midline seam!)
+    d = sd_ellipsoid(x, y, z, (0.0, 0.58, -0.04), (0.86, 0.95, 0.86))
+    d = smin(d, sd_ellipsoid(x, y, z, (0.0, 0.02, 0.06), (0.78, 0.48, 0.72)), 0.28)
+    jaw_w = 0.65 - 0.32 * sstep(-0.10, -0.90, y)
     jaw_z = 0.08 + 0.16 * sstep(-0.10, -0.82, y)
     d_jaw = sd_ellipsoid(x, y, z, (0.0, -0.36, jaw_z), (jaw_w, 0.56, 0.64))
-    d = smin(d, d_jaw, 0.24)
+    d = smin(d, d_jaw, 0.25)
 
-    # Subtle sculptural high cheekbones & sleek temple headphone mounts
+    # Subtle high cheekbones & sleek unbroken jawline sweep
     for sx in (-1.0, 1.0):
-        # Soft high zygomatic arch flowing smoothly from under visor outer edge back toward temple
         d = smin(d, sd_ellipsoid(x, y, z, (sx * 0.52, 0.02, 0.38), (0.24, 0.16, 0.28)), 0.28)
-        # Sleek continuous jawline bevel (single unbroken sweep from ear-angle to chin — NO mid-cheek joint!)
-        d = smin(d, sd_taper_capsule(x, y, z, (sx * 0.65, -0.14, -0.02), (sx * 0.17, -0.85, 0.48), 0.165, 0.115), 0.24)
-        # Sculpted temple acoustic receiver collars
-        d = smin(d, sd_ellipsoid(x, y, z, (sx * 0.85, POD_Y, -0.01), (0.15, 0.44, 0.27)), 0.15)
-        # Precision recessed temple hinge socket accent
-        hinge_g = sd_capsule(x, y, z, (sx * 0.80, POD_Y + 0.26, 0.18), (sx * 0.80, POD_Y - 0.26, 0.18), 0.018)
-        d = smax(d, -hinge_g, 0.014)
+        d = smin(d, sd_taper_capsule(x, y, z, (sx * 0.66, -0.14, -0.01), (sx * 0.17, -0.85, 0.48), 0.17, 0.12), 0.24)
+        # Organic temple receiver flare blending directly into the ear pod yoke
+        d = smin(d, sd_ellipsoid(x, y, z, (sx * 0.82, POD_Y, 0.01), (0.20, 0.50, 0.32)), 0.20)
 
     # Refined classical sculpted chin
-    d = smin(d, sd_ellipsoid(x, y, z, (0.0, Y_CHIN + 0.01, 0.54), (0.21, 0.135, 0.165)), 0.15)
+    d = smin(d, sd_ellipsoid(x, y, z, (0.0, Y_CHIN + 0.01, 0.54), (0.215, 0.138, 0.168)), 0.16)
+
+    # Seamlessly weld the 3D Ear Speaker Pods directly into the head sculpture!
+    if float(y.max()) > -0.75 and float(y.min()) < 1.20:
+        d = smin(d, pods_shell_sdf(x, y, z), 0.14)
+        d = carve_pod_details(d, x, y, z)
 
     # 2. Refined Sculpted Nose (smooth continuous bridge emerging cleanly from beneath visor)
     d = smin(d, sd_taper_capsule(x, y, z, (0.0, 0.16, 0.77), (0.0, -0.21, 0.94), 0.064, 0.086), 0.12)
@@ -95,30 +126,33 @@ def head_sdf(x, y, z):
     for sx in (-1.0, 1.0):
         d = smin(d, sd_sphere(x, y, z, (sx * 0.104, Y_NOSE_TIP - 0.018, 0.875), 0.058), 0.078)
         d = smax(d, -sd_ellipsoid(x, y, z, (sx * 0.056, Y_NOSE_TIP - 0.062, 0.915), (0.030, 0.022, 0.048)), 0.015)
-    # Subtle classical philtrum dimple between nose base & upper lip
     d = smax(d, -sd_capsule(x, y, z, (0.0, Y_NOSE_TIP - 0.10, 0.84), (0.0, Y_MOUTH + 0.08, 0.83), 0.026), 0.045)
 
-    # 3. Sculpted Classical Chrome Lips (Cupid's bow upper lip + full lower lip + gentle mentolabial curve)
+    # 3. Sculpted Classical Chrome Lips
     d = smin(d, sd_ellipsoid(x, y, z, (0.0, Y_MOUTH + 0.030, 0.755), (0.215, 0.036, 0.076)), 0.065)
     d = smin(d, sd_ellipsoid(x, y, z, (0.0, Y_MOUTH - 0.040, 0.755), (0.188, 0.046, 0.084)), 0.065)
-    # Crisp mouth parting seam
     d = smax(d, -sd_ellipsoid(x, y, z, (0.0, Y_MOUTH - 0.004, 0.855), (0.222, 0.0085, 0.072)), 0.014)
-    # Gentle smooth mentolabial hollow under lower lip (soft k=0.11 so there's NO harsh black crease!)
     d = smax(d, -sd_ellipsoid(x, y, z, (0.0, Y_MOUTH - 0.125, 0.76), (0.15, 0.022, 0.055)), 0.11)
 
-    # 4. Graceful Anatomical Neck + Sternocleidomastoid V-Tendons + Sculpted Collarbones
-    d = smin(d, sd_ellipsoid(x, y, z, (0.0, -1.26, -0.04), (0.35, 0.58, 0.34)), 0.25)
-    # Subtle tracheal central column
-    d = smin(d, sd_taper_capsule(x, y, z, (0.0, -0.96, 0.16), (0.0, -1.48, 0.22), 0.11, 0.13), 0.14)
+    # 4. Continuous Sculpted Anatomical Neck — organically bridges Chin/Jaw to Collarbones & Shoulders!
+    # Main cylindrical-oval neck core (brought forward & wider so the head sits solidly on it in 3D)
+    d_neck_core = sd_ellipsoid(x, y, z, (0.0, -1.24, 0.05), (0.43, 0.66, 0.43))
+    d = smin(d, d_neck_core, 0.30)
+    # Smooth submental throat-under-chin bridge (eliminates floating-head shadow disconnect!)
+    d_throat = sd_taper_capsule(x, y, z, (0.0, -0.78, 0.30), (0.0, -1.48, 0.25), 0.25, 0.30)
+    d = smin(d, d_throat, 0.24)
+    # Broad sculpted neck base flare flowing seamlessly into chest top & shoulders
+    d_neck_base = sd_ellipsoid(x, y, z, (0.0, -1.58, 0.08), (0.78, 0.36, 0.44))
+    d = smin(d, d_neck_base, 0.28)
     for sx in (-1.0, 1.0):
-        # Sternocleidomastoid V-tendons curving from mastoid behind jaw to sternal notch
-        d = smin(d, sd_taper_capsule(x, y, z, (sx * 0.32, -0.84, -0.02), (sx * 0.10, -1.52, 0.27), 0.090, 0.068), 0.13)
-        # Anatomical S-curved clavicles flowing smoothly into sculpted deltoid shoulders
-        d = smin(d, sd_taper_capsule(x, y, z, (sx * 0.16, -1.57, 0.32), (sx * 1.15, -1.66, 0.16), 0.085, 0.122), 0.19)
-        # Sculpted trapezius neck-to-shoulder ridge
-        d = smin(d, sd_taper_capsule(x, y, z, (sx * 0.30, -1.16, -0.10), (sx * 1.12, -1.62, -0.06), 0.12, 0.22), 0.22)
-    # Sculpted suprasternal notch hollow above chest collar
-    d = smax(d, -sd_ellipsoid(x, y, z, (0.0, -1.54, 0.38), (0.15, 0.095, 0.13)), 0.13)
+        # Continuous sternocleidomastoid V-muscles from behind jaw down into sternum
+        d = smin(d, sd_taper_capsule(x, y, z, (sx * 0.40, -0.72, 0.04), (sx * 0.14, -1.58, 0.30), 0.135, 0.115), 0.20)
+        # Sculpted trapezius sweeping smoothly from mid-neck out to broad deltoid shoulders
+        d = smin(d, sd_taper_capsule(x, y, z, (sx * 0.34, -1.04, -0.05), (sx * 1.20, -1.68, -0.02), 0.19, 0.30), 0.28)
+        # Anatomical S-curved clavicles flowing cleanly into shoulder cap
+        d = smin(d, sd_taper_capsule(x, y, z, (sx * 0.16, -1.58, 0.34), (sx * 1.18, -1.68, 0.18), 0.10, 0.14), 0.22)
+    # Gentle suprasternal notch dimple
+    d = smax(d, -sd_ellipsoid(x, y, z, (0.0, -1.56, 0.43), (0.14, 0.085, 0.11)), 0.14)
 
     # 5. Sleek Curved Wrap-Around Early-2000s Cyber-Visor Bezel
     zv = z + 0.20 * (x * x)
@@ -132,11 +166,9 @@ def head_sdf(x, y, z):
 
     return d
 
+
 def chest_sdf(x, y, z):
-    # Sleek sculpted Y2K chrome chest housing (top chrome lip sits cleanly at y = -1.56, well above panel top -1.87!)
-    # Smooth quadratic bottom taper (zero midline seam at x=0!)
     hx_taper = 1.50 - 0.12 * sstep(-2.4, -4.25, y)
-    # Build smooth extruded rounded rectangle with variable smooth width
     qx = np.abs(x) - hx_taper + 0.52
     qy = np.abs(y - (-2.90)) - 1.32 + 0.52
     d2 = np.sqrt(np.maximum(qx, 0.0) ** 2 + np.maximum(qy, 0.0) ** 2) + np.minimum(np.maximum(qx, qy), 0.0) - 0.52
@@ -144,24 +176,18 @@ def chest_sdf(x, y, z):
     w1 = d2 + 0.18
     body = np.sqrt(np.maximum(w1, 0.0) ** 2 + np.maximum(wz, 0.0) ** 2) + np.minimum(np.maximum(w1, wz), 0.0) - 0.18
 
-    # Sculpted trapezius shoulders flowing smoothly from neck into chest frame
-    traps = sd_ellipsoid(x, y, z, (0.0, -1.68, -0.03), (1.22, 0.42, 0.42))
-    d = smin(body, traps, 0.32)
+    # Sculpted upper chest & deltoid shoulder yoke flowing seamlessly up into neck
+    traps = sd_ellipsoid(x, y, z, (0.0, -1.66, 0.00), (1.30, 0.46, 0.46))
+    d = smin(body, traps, 0.34)
 
     # Crisp diagonal cyber-armor shoulder contour grooves
     for sx in (-1.0, 1.0):
-        sh_g = sd_taper_capsule(x, y, z, (sx * 0.76, -1.64, 0.39), (sx * 1.40, -2.18, 0.36), 0.018, 0.015)
+        sh_g = sd_taper_capsule(x, y, z, (sx * 0.78, -1.68, 0.40), (sx * 1.40, -2.18, 0.36), 0.017, 0.014)
         d = smax(d, -sh_g, 0.016)
 
-    # Deep chamfered console pocket cleanly INSIDE the chrome chest frame!
-    lip_cut = sd_extruded_rrect(x, y, z, (0.0, PANEL_CY, CHEST_FRONT + 0.14),
-                                PANEL_HX + 0.022, PANEL_HY + 0.022, 0.24, 0.175, 0.052)
-    d = smax(d, -lip_cut, 0.038)
-
-    # 11 Precision-Milled 3D Acoustic Grille Slots (ONLY evaluated in bottom chin rows y < -3.75!)
+    # 11 Precision-Milled 3D Acoustic Grille Slots
     vent_y = YC - 2016.0 / S0   # -4.087
     if np.any(y < -3.75):
-        # Single vectorized periodic slot SDF (11x faster than looping 11 times!)
         slot_idx = np.clip(np.round(x / 0.145), -5.0, 5.0)
         vx = slot_idx * 0.145
         slot = sd_rbox(x, y, z, (vx, vent_y, CHEST_FRONT + 0.06), (0.026, 0.058, 0.16), 0.024)
@@ -169,16 +195,23 @@ def chest_sdf(x, y, z):
 
     return d
 
-def bust_scene(x, y, z):
-    # Spatial domain splitting: skip head_sdf on pure chest rows & skip chest_sdf on pure head rows (~3x faster!)
+
+def full_bust_scene(x, y, z):
+    # Wide overlap margin (-2.45 .. -0.45) guarantees zero seam on surface, normals, AO & shadow rays!
     y_min = float(y.min())
     y_max = float(y.max())
-    if y_max < -1.95:
+    if y_max < -2.45:
         d_body = chest_sdf(x, y, z)
-    elif y_min > -1.05:
+    elif y_min > -0.45:
         d_body = head_sdf(x, y, z)
     else:
-        d_body = smin(head_sdf(x, y, z), chest_sdf(x, y, z), 0.24)
+        d_body = smin(head_sdf(x, y, z), chest_sdf(x, y, z), 0.32)
+
+    # Carve chamfered chest console pocket AFTER head+chest fusion so the top bezel is 100% crisp & straight!
+    if y_min < -1.55:
+        lip_cut = sd_extruded_rrect(x, y, z, (0.0, PANEL_CY, CHEST_FRONT + 0.14),
+                                    PANEL_HX + 0.022, PANEL_HY + 0.022, 0.28, 0.175, 0.052)
+        d_body = smax(d_body, -lip_cut, 0.038)
 
     best = d_body
     mat = np.zeros_like(d_body, dtype=np.int8)
@@ -189,8 +222,8 @@ def bust_scene(x, y, z):
         best = np.where(sel, dd, best)
         mat = np.where(sel, m_id, mat)
 
-    # 1. Curved Smoked Sapphire-Obsidian Forehead Visor Glass + Neon Trim (ONLY on head rows!)
-    if y_max > -0.10:
+    # 1. Forehead Visor Glass + Neon Trim
+    if y_max > -0.15:
         zv = z + 0.20 * (x * x)
         nose_arch = 0.075 * np.exp(-((x / 0.25) ** 2))
         yv = y - VISOR_Y - nose_arch * sstep(-0.06, -0.32, y - VISOR_Y)
@@ -202,13 +235,27 @@ def bust_scene(x, y, z):
         vr_in = sd_extruded_rrect(x, yv, zv, (0.0, 0.0, 0.838), VISOR_HX - 0.014, VISOR_HY - 0.014, 0.036, 0.188, 0.010)
         put(np.maximum(vr_out, -vr_in), 5)
 
-    # 2. Chest Console Glass, Collar Bar & Vent Backing (ONLY on chest rows!)
-    if y_min < -1.45:
+    # 2. Integrated Ear Speaker Socket Chambers, Brushed Aluminum Bezels & Cyan Light-Pipes
+    if y_max > -0.65 and y_min < 1.15:
+        for sx, cy, cone_r, sock_r in CONES:
+            fl = sd_cylinder_z(x, y, z, (sx * POD_X, cy, 0.158), sock_r + 0.004, 0.008)
+            put(fl, 6)
+            bezel = sd_torus_z(x, y, z, (sx * POD_X, cy, 0.242), sock_r + 0.010, 0.015)
+            put(bezel, 2)
+
+        ax = np.abs(x)
+        sp_y = np.clip(y - POD_Y, -0.37, 0.37)
+        sp_cx = POD_X + 0.198 + 0.036 * np.cos(sp_y * 2.3) + 0.028 * sstep(0.35, -0.45, sp_y)
+        spine = np.sqrt((ax - sp_cx) ** 2 + (y - (POD_Y + sp_y)) ** 2 + (z - 0.140) ** 2) - 0.019
+        put(spine, 5)
+
+    # 3. Chest Console Glass, Collar Bar & Vent Backing
+    if y_min < -1.35:
         glass_c = sd_extruded_rrect(x, y, z, (0.0, PANEL_CY, CHEST_FRONT - 0.10),
                                     PANEL_HX - 0.012, PANEL_HY - 0.012, 0.024, 0.15, 0.016)
         put(glass_c, 1)
 
-        collar_bar = sd_capsule(x, y, z, (-0.42, -1.72, 0.445), (0.42, -1.72, 0.445), 0.017)
+        collar_bar = sd_capsule(x, y, z, (-0.42, -1.72, 0.455), (0.42, -1.72, 0.455), 0.016)
         put(collar_bar, 5)
 
         if y_min < -3.75:
@@ -218,66 +265,13 @@ def bust_scene(x, y, z):
 
     return best, mat
 
-# ------------------------------------------------------------------ 3D Sculpted Ear Speaker Pods SDF (Hi-Fi Monitor Housings!)
-def pods_sdf_raw(x, y, z):
-    ax = np.abs(x)
-    curve_x = 0.042 * np.cos((y - POD_Y) * 2.3)
-    w_taper = 0.030 * sstep(0.35, -0.45, y - POD_Y)
-    d = sd_extruded_rrect(ax, y, z, (POD_X + curve_x, POD_Y, 0.04), 0.228 + w_taper, 0.625, 0.25, 0.215, 0.122)
 
-    # Sculpted chrome acoustic hinge bridge locking each pod organically to the temple collar
-    hinge_arm = sd_extruded_rrect(ax, y, z, (POD_X - 0.185, POD_Y, -0.02), 0.10, 0.34, 0.11, 0.075, 0.045)
-    d = smin(d, hinge_arm, 0.065)
+def full_bust_ao(x, y, z):
+    return full_bust_scene(x, y, z)[0]
 
-    # Carve sleek recessed optical groove along outer spine for embedded cyan light-pipe
-    sp_y = np.clip(y - POD_Y, -0.38, 0.38)
-    sp_cx = POD_X + 0.212 + 0.042 * np.cos(sp_y * 2.3) + 0.030 * sstep(0.35, -0.45, sp_y)
-    spine_groove = np.sqrt((ax - sp_cx) ** 2 + (y - (POD_Y + sp_y)) ** 2 + (z - 0.145) ** 2) - 0.028
-    d = smax(d, -spine_groove, 0.014)
-
-    # Carve 3 deep, generously chamfered acoustic speaker sockets (ZERO inner rim aliasing!)
-    for sx, cy, cone_r, sock_r in CONES:
-        rho = np.sqrt((x - sx * POD_X) ** 2 + (y - cy) ** 2)
-        cav = np.maximum(rho - (sock_r + 0.008), 0.155 - z)
-        d = smax(d, -cav, 0.028)
-    return d
-
-def pods_scene(x, y, z):
-    d = pods_sdf_raw(x, y, z)
-    best = d
-    mat = np.zeros_like(d, dtype=np.int8)
-
-    def put(dd, m_id):
-        nonlocal best, mat
-        sel = dd < best
-        best = np.where(sel, dd, best)
-        mat = np.where(sel, m_id, mat)
-
-    for sx, cy, cone_r, sock_r in CONES:
-        # Deep dark anodized acoustic backing chamber seated cleanly inside socket
-        fl = sd_cylinder_z(x, y, z, (sx * POD_X, cy, 0.158), sock_r + 0.004, 0.008)
-        put(fl, 6)
-        # Smooth machined brushed-aluminum bezel ring framing each driver socket (eliminates rim noise!)
-        bezel = sd_torus_z(x, y, z, (sx * POD_X, cy, 0.242), sock_r + 0.010, 0.015)
-        put(bezel, 2)
-
-    # Smooth rounded-cap Electric-Cyan Y2K Optical Light-Pipe nested cleanly INSIDE outer groove (Mat 5)
-    ax = np.abs(x)
-    sp_y = np.clip(y - POD_Y, -0.37, 0.37)
-    sp_cx = POD_X + 0.204 + 0.042 * np.cos(sp_y * 2.3) + 0.030 * sstep(0.35, -0.45, sp_y)
-    spine = np.sqrt((ax - sp_cx) ** 2 + (y - (POD_Y + sp_y)) ** 2 + (z - 0.140) ** 2) - 0.019
-    put(spine, 5)
-
-    return best, mat
-
-def combined_ao(x, y, z):
-    d = bust_scene(x, y, z)[0]
-    if float(y.max()) > -0.70 and float(y.min()) < 1.15:
-        d = np.minimum(d, pods_scene(x, y, z)[0])
-    return d
 
 # ------------------------------------------------------------------ 3x Supersampled Speaker Cone (cone.png)
-def render_speaker_cone(size=140):
+def render_speaker_cone(size=256):
     ss = 3
     M = size * ss
     c = (np.arange(M, dtype=np.float32) + 0.5) / M * 2.0 - 1.0
@@ -332,8 +326,9 @@ def render_speaker_cone(size=140):
     out = downsample_rgba(hi, size, size)
     return finish_y2k(out, bloom=0.22, bloom_thr=0.78, haze=0.02)
 
+
 # ------------------------------------------------------------------ 3x Supersampled Y2K Aqua Crown Orb (pearl.png)
-def render_crown_orb(size=148):
+def render_crown_orb(size=256):
     ss = 3
     M = size * ss
     c = (np.arange(M, dtype=np.float32) + 0.5) / M * 2.0 - 1.0
@@ -376,13 +371,14 @@ def render_crown_orb(size=148):
     out = downsample_rgba(hi, size, size)
     return finish_y2k(out, bloom=0.30, bloom_thr=0.74, haze=0.02)
 
+
 # ------------------------------------------------------------------ Main Pipeline
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--w', type=int, default=1080)
     ap.add_argument('--ss', type=float, default=1.35, help='Supersample factor for razor-sharp 3D anti-aliasing')
     ap.add_argument('--out', default='app/src/main/assets/skins')
-    ap.add_argument('--part', default='all', choices=['all', 'bust', 'ears', 'sprites'])
+    ap.add_argument('--part', default='all', choices=['all', 'bust', 'sprites'])
     A = ap.parse_args()
 
     os.makedirs(A.out, exist_ok=True)
@@ -391,7 +387,6 @@ def main():
     W = int(round(OUT_W * A.ss))
     H = int(round(OUT_H * A.ss))
     S = W / WORLD_W
-    K = DESIGN_W / float(W)
     px_world = 1.0 / S
 
     x_from_j = lambda j: (j + 0.5 - W * 0.5) / S
@@ -401,52 +396,18 @@ def main():
         return [round(wx * S0 + DESIGN_W * 0.5, 1), round(YC * S0 - wy * S0, 1)]
 
     t0 = time.time()
-    meta = {}
 
     if A.part in ('all', 'bust'):
-        print(f"[bust] Raymarching 3D Y2K Liquid-Chrome Bust ({W}x{H} -> {OUT_W}x{OUT_H})...", flush=True)
-        # Tight bounding mask skips empty sky pixels above crown & outside chest flanks
-        bust_mask = lambda X, Y: (Y < 1.66) & (np.abs(X) < 1.60)
-        img = raymarch_layer(bust_scene, combined_ao, W, H, x_from_j, y_from_i, px_world,
-                             z_start=2.4, max_dist=4.5, max_steps=68, eps=0.0010, norm_e=0.0016,
+        print(f"[bust] Raymarching UNIFIED 3D Y2K Liquid-Chrome Bust + Ears + Neck ({W}x{H} -> {OUT_W}x{OUT_H})...", flush=True)
+        bust_mask = lambda X, Y: (Y < 1.66) & (np.abs(X) < 1.62)
+        img = raymarch_layer(full_bust_scene, full_bust_ao, W, H, x_from_j, y_from_i, px_world,
+                             z_start=2.4, max_dist=4.6, max_steps=78, eps=0.0008, norm_e=0.0014,
                              chunk_rows=40, mask_fn=bust_mask, do_shadow=True, workers=4)
         if A.ss > 1.01:
             img = downsample_rgba(img, OUT_W, OUT_H)
-        img = finish_y2k(img, bloom=0.20, bloom_thr=0.80, haze=0.006)
+        img = finish_y2k(img, bloom=0.20, bloom_thr=0.80, haze=0.005)
         save_rgba(img, os.path.join(A.out, 'bust.png'))
-        print(f"[bust] Saved bust.png ({OUT_W}x{OUT_H}) in {time.time() - t0:.1f}s", flush=True)
-
-    if A.part in ('all', 'ears'):
-        t1 = time.time()
-        # Render ear pods at 2x supersampling for razor-sharp speaker bezel rings!
-        EW = int(round(OUT_W * 2.0))
-        EH = int(round(OUT_H * 2.0))
-        ES = EW / WORLD_W
-        EK = DESIGN_W / float(EW)
-        ex_j = lambda j: (j + 0.5 - EW * 0.5) / ES
-        ey_i = lambda i: (YC * ES - (i + 0.5)) / ES
-        for side, name in ((-1, 'ear_l'), (1, 'ear_r')):
-            print(f"[ears] Raymarching {name} (2x SSAA)...", flush=True)
-            mask_fn = lambda X, Y, s=side: (X * s > 0.72) & (X * s < 1.48) & (np.abs(Y - POD_Y) < 0.82)
-            img = raymarch_layer(pods_scene, combined_ao, EW, EH, ex_j, ey_i, 1.0 / ES,
-                                 z_start=2.4, max_dist=4.4, max_steps=84, eps=0.00065, norm_e=0.0012,
-                                 chunk_rows=48, mask_fn=mask_fn, do_shadow=True, workers=4)
-            ys, xs = np.where(img[..., 3] > 0.005)
-            pad = max(8, int(round(8 / EK)))
-            x0, x1 = max(0, int(xs.min()) - pad), min(EW, int(xs.max()) + pad + 1)
-            y0, y1 = max(0, int(ys.min()) - pad), min(EH, int(ys.max()) + pad + 1)
-            crop = img[y0:y1, x0:x1]
-            # Downsample 2x -> 1.35x crisp retina resolution (e.g. ~290x600 px)
-            dst_w = max(1, int(round(crop.shape[1] * 0.68)))
-            dst_h = max(1, int(round(crop.shape[0] * 0.68)))
-            crop = downsample_rgba(crop, dst_w, dst_h)
-            crop = finish_y2k(crop, bloom=0.18, bloom_thr=0.80, haze=0.005)
-            save_rgba(crop, os.path.join(A.out, f'{name}.png'))
-            meta[name] = dict(
-                x=round(x0 * EK, 1), y=round(y0 * EK, 1),
-                w=round((x1 - x0) * EK, 1), h=round((y1 - y0) * EK, 1),
-            )
-        print(f"[ears] Saved ear_l.png & ear_r.png in {time.time() - t1:.1f}s", flush=True)
+        print(f"[bust] Saved unified bust.png ({OUT_W}x{OUT_H}) in {time.time() - t0:.1f}s", flush=True)
 
     if A.part in ('all', 'sprites'):
         t2 = time.time()
@@ -454,7 +415,7 @@ def main():
         save_rgba(render_crown_orb(256), os.path.join(A.out, 'pearl.png'))
         print(f"[sprites] Saved 256x256 cone.png & pearl.png in {time.time() - t2:.1f}s", flush=True)
 
-    if A.part == 'all':
+    if A.part in ('all', 'bust'):
         ids = ['prev', 'play', 'next', 'list', 'eq', 'fx']
         buttons = []
         for idx, (sx, cy, cone_r, sock_r) in enumerate(CONES):
@@ -475,7 +436,8 @@ def main():
             r=44,
         )
 
-        meta.update(
+        # Notice: NO separate ear_l / ear_r overlay entries — ears are natively fused into unified bust.png!
+        meta = dict(
             w=DESIGN_W, h=DESIGN_H,
             cone=dict(w=92, h=92),
             screen=screen,
@@ -484,8 +446,9 @@ def main():
         )
         with open(os.path.join(A.out, 'bust.json'), 'w') as f:
             json.dump(meta, f, indent=2)
-        print(f"[bust] Wrote bust.json (screen={screen['w']}x{screen['h']}, panel={PANEL_PX['w']}x{PANEL_PX['h']})")
+        print(f"[bust] Wrote unified bust.json (screen={screen['w']}x{screen['h']}, panel={PANEL_PX['w']}x{PANEL_PX['h']})")
         print(f"[bust] ALL DONE in {time.time() - t0:.1f}s")
+
 
 if __name__ == '__main__':
     main()
