@@ -123,7 +123,8 @@ final class Downloader {
                             HttpURLConnection conn = null;
                             try {
                                 boolean isGv = rs.url.contains("googlevideo.com");
-                                String reqUrl = isGv ? YtMusic.withRangeParam(rs.url, start, end) : rs.url;
+                                boolean useRangeQuery = isGv && total > 0;
+                                String reqUrl = useRangeQuery ? YtMusic.withRangeParam(rs.url, start, end) : rs.url;
                                 conn = (HttpURLConnection) new URL(reqUrl).openConnection();
                                 conn.setInstanceFollowRedirects(true);
                                 conn.setConnectTimeout(10_000);
@@ -131,11 +132,16 @@ final class Downloader {
                                 conn.setRequestProperty("User-Agent", rs.userAgent);
                                 conn.setRequestProperty("Accept", "*/*");
                                 conn.setRequestProperty("Accept-Encoding", "identity");
-                                if (!isGv) {
+                                if (!useRangeQuery) {
                                     conn.setRequestProperty("Range", "bytes=" + start + "-" + end);
                                 }
 
                                 int code = conn.getResponseCode();
+                                if (code == 416) {
+                                    chunkErr = null;
+                                    done = true;
+                                    break;
+                                }
                                 if (code == 403 || code == 410) {
                                     chunkErr = new IOException("HTTP " + code);
                                     continue;
@@ -147,7 +153,7 @@ final class Downloader {
                                 if (total <= 0) {
                                     long parsed = parseContentRangeTotal(conn.getHeaderField("Content-Range"));
                                     if (parsed > 0) total = parsed;
-                                    else if (code == 200 && !isGv) {
+                                    else if (code == 200 && !useRangeQuery) {
                                         long cl = conn.getContentLengthLong();
                                         if (cl > 0) total = start + cl;
                                     }

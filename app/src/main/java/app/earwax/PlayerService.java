@@ -364,7 +364,7 @@ public final class PlayerService extends Service {
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(8_000)
                 .setReadTimeoutMs(14_000)
-                .setUserAgent(YtMusic.UA_IOS);
+                .setUserAgent(YtMusic.UA_ANDROID);
 
         DefaultDataSource.Factory baseDataSource = new DefaultDataSource.Factory(this, httpFactory);
         YtDataSource.Factory ytDataSourceFactory = new YtDataSource.Factory(this, baseDataSource);
@@ -382,6 +382,13 @@ public final class PlayerService extends Service {
                         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                         .build(), false) // we handle AudioFocus ourselves for resilient ducking/no-stop!
                 .build();
+
+        // Audio-only player: disable video track decoding so progressive MP4 streams (itag 18) use zero video CPU/battery
+        pl.setTrackSelectionParameters(
+                pl.getTrackSelectionParameters()
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+                        .build());
 
         pl.setVolume(vol);
         applyPlaybackParams();

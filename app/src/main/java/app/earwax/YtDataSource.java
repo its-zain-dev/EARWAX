@@ -60,6 +60,8 @@ final class YtDataSource extends BaseDataSource {
     private HttpURLConnection conn;
     private InputStream chunkIn;
     private long chunkRemaining;
+    private long chunkRequested;
+    private long chunkRead;
 
     YtDataSource(Context ctx, DataSource.Factory baseFactory) {
         super(true);
@@ -135,34 +137,39 @@ final class YtDataSource extends BaseDataSource {
 
         int attempts = 0;
         while (attempts < 3) {
-            if (chunkIn == null || (totalLength > 0 && chunkRemaining <= 0)) {
-                if (totalLength > 0 && pos >= totalLength) {
-                    return C.RESULT_END_OF_INPUT;
-                }
-                openNextChunk(attempts > 0);
-            }
-
-            int toRead = length;
-            if (bytesRemaining != C.LENGTH_UNSET) {
-                toRead = (int) Math.min(toRead, bytesRemaining);
-            }
-            if (totalLength > 0 && chunkRemaining > 0) {
-                toRead = (int) Math.min(toRead, chunkRemaining);
-            }
-            if (toRead <= 0) return C.RESULT_END_OF_INPUT;
-
             try {
+                if (chunkIn == null || chunkRemaining <= 0) {
+                    if (totalLength > 0 && pos >= totalLength) {
+                        return C.RESULT_END_OF_INPUT;
+                    }
+                    openNextChunk(attempts > 0);
+                    if (chunkIn == null) {
+                        return C.RESULT_END_OF_INPUT;
+                    }
+                }
+
+                int toRead = length;
+                if (bytesRemaining != C.LENGTH_UNSET) {
+                    toRead = (int) Math.min(toRead, bytesRemaining);
+                }
+                if (chunkRemaining > 0) {
+                    toRead = (int) Math.min(toRead, chunkRemaining);
+                }
+                if (toRead <= 0) return C.RESULT_END_OF_INPUT;
+
                 int n = chunkIn.read(buffer, offset, toRead);
                 if (n > 0) {
                     pos += n;
+                    chunkRead += n;
                     if (bytesRemaining != C.LENGTH_UNSET) bytesRemaining -= n;
                     if (chunkRemaining > 0) chunkRemaining -= n;
                     bytesTransferred(n);
                     return n;
                 }
                 // Current chunk hit EOF
+                boolean shortChunk = totalLength <= 0 && chunkRequested > 0 && chunkRead < chunkRequested;
                 closeChunk();
-                if (totalLength <= 0 || pos >= totalLength || bytesRemaining == 0) {
+                if (bytesRemaining == 0 || (totalLength > 0 && pos >= totalLength) || shortChunk) {
                     return C.RESULT_END_OF_INPUT;
                 }
                 // Otherwise continue loop to open next chunk cleanly
@@ -195,9 +202,6 @@ final class YtDataSource extends BaseDataSource {
         IOException lastErr = null;
         for (int attempt = 0; attempt < 2; attempt++) {
             if (attempt == 1) {
-                if (!allowRefreshOnFail && stream != null) {
-                    // Always allow 1 fresh refresh on HTTP 403/410
-                }
                 refreshStream();
             }
             long start = pos;
@@ -206,12 +210,15 @@ final class YtDataSource extends BaseDataSource {
                     : (start + chunkSize - 1);
             if (totalLength > 0 && start >= totalLength) {
                 chunkRemaining = 0;
+                chunkRequested = 0;
                 return;
             }
 
             try {
                 boolean isGoogleVideo = stream.url.contains("googlevideo.com");
-                String reqUrl = isGoogleVideo ? YtMusic.withRangeParam(stream.url, start, end) : stream.url;
+                // When totalLength is unknown, use HTTP Range header so googlevideo returns 206 + Content-Range with exact total size!
+                boolean useRangeQuery = isGoogleVideo && totalLength > 0;
+                String reqUrl = useRangeQuery ? YtMusic.withRangeParam(stream.url, start, end) : stream.url;
                 HttpURLConnection c = (HttpURLConnection) new URL(reqUrl).openConnection();
                 c.setInstanceFollowRedirects(true);
                 c.setConnectTimeout(8_000);
@@ -219,11 +226,18 @@ final class YtDataSource extends BaseDataSource {
                 c.setRequestProperty("User-Agent", stream.userAgent);
                 c.setRequestProperty("Accept", "*/*");
                 c.setRequestProperty("Accept-Encoding", "identity");
-                if (!isGoogleVideo) {
+                if (!useRangeQuery) {
                     c.setRequestProperty("Range", "bytes=" + start + "-" + end);
                 }
 
                 int code = c.getResponseCode();
+                if (code == 416) {
+                    c.disconnect();
+                    chunkRemaining = 0;
+                    chunkRequested = 0;
+                    bytesRemaining = 0;
+                    return;
+                }
                 if (code == 403 || code == 410 || code == 404) {
                     c.disconnect();
                     lastErr = new IOException("HTTP " + code + " for " + videoId);
@@ -240,14 +254,17 @@ final class YtDataSource extends BaseDataSource {
                     long parsed = parseContentRangeTotal(cr);
                     if (parsed > 0) {
                         totalLength = parsed;
-                    } else if (code == 200 && !isGoogleVideo) {
+                    } else if (code == 200 && !useRangeQuery) {
                         long cl = c.getContentLengthLong();
                         if (cl > 0) totalLength = start + cl;
                     }
                 }
 
+                long expected = end - start + 1;
                 long cl = c.getContentLengthLong();
-                chunkRemaining = cl > 0 ? cl : (end - start + 1);
+                chunkRequested = expected;
+                chunkRead = 0;
+                chunkRemaining = cl > 0 ? cl : expected;
                 conn = c;
                 chunkIn = c.getInputStream();
                 return;
@@ -279,6 +296,8 @@ final class YtDataSource extends BaseDataSource {
             conn = null;
         }
         chunkRemaining = 0;
+        chunkRequested = 0;
+        chunkRead = 0;
     }
 
     private void closeInternal() {

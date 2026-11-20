@@ -73,6 +73,7 @@ final class YtMusic {
     };
 
     static final String UA_WEB = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
+    static final String UA_ANDROID = "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip";
     static final String UA_IOS = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";
     static final String UA_VR  = "com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
 
@@ -425,28 +426,35 @@ final class YtMusic {
                 if (cached != null) return cached;
             }
 
-            // Tier 1: InnerTube IOS client (fastest, highest reliability on official YT Music tracks, direct AAC/M4A + contentLength!)
-            ResolvedStream res = resolveViaInnerTube(videoId, "IOS", "20.10.4", UA_IOS);
+            // Tier 1: InnerTube ANDROID client preferring progressive formats (itag 18) — immune to PO-token mid-stream 403 cutoff!
+            ResolvedStream res = resolveViaInnerTube(videoId, "ANDROID", "20.10.38", UA_ANDROID, true);
             if (res != null) {
                 STREAM_CACHE.put(videoId, res);
                 return res;
             }
 
-            // Tier 2: InnerTube ANDROID_VR fallback
-            res = resolveViaInnerTube(videoId, "ANDROID_VR", "1.62.27", UA_VR);
+            // Tier 2: InnerTube IOS client fallback
+            res = resolveViaInnerTube(videoId, "IOS", "20.10.4", UA_IOS, false);
             if (res != null) {
                 STREAM_CACHE.put(videoId, res);
                 return res;
             }
 
-            // Tier 3: Fast-timeout public Piped API mirrors
+            // Tier 3: InnerTube ANDROID_VR fallback
+            res = resolveViaInnerTube(videoId, "ANDROID_VR", "1.62.27", UA_VR, false);
+            if (res != null) {
+                STREAM_CACHE.put(videoId, res);
+                return res;
+            }
+
+            // Tier 4: Fast-timeout public Piped API mirrors
             res = resolveViaPiped(videoId);
             if (res != null) {
                 STREAM_CACHE.put(videoId, res);
                 return res;
             }
 
-            // Tier 4: Fast-timeout public Invidious API mirrors
+            // Tier 5: Fast-timeout public Invidious API mirrors
             res = resolveViaInvidious(videoId);
             if (res != null) {
                 STREAM_CACHE.put(videoId, res);
@@ -456,14 +464,18 @@ final class YtMusic {
         }
     }
 
-    private static ResolvedStream resolveViaInnerTube(String videoId, String clientName, String clientVer, String ua) {
+    private static ResolvedStream resolveViaInnerTube(String videoId, String clientName, String clientVer, String ua, boolean preferProgressive) {
         try {
             JSONObject cli = new JSONObject()
                     .put("clientName", clientName)
                     .put("clientVersion", clientVer)
                     .put("hl", "en")
                     .put("gl", "US");
-            if ("IOS".equals(clientName)) {
+            if ("ANDROID".equals(clientName)) {
+                cli.put("androidSdkVersion", 34)
+                        .put("osName", "Android")
+                        .put("osVersion", "14");
+            } else if ("IOS".equals(clientName)) {
                 cli.put("deviceMake", "Apple")
                         .put("deviceModel", "iPhone16,2")
                         .put("osName", "iPhone")
@@ -491,6 +503,12 @@ final class YtMusic {
             long expiresSec = sd.optLong("expiresInSeconds", 14400L);
             long expAt = System.currentTimeMillis() + Math.max(1800L, expiresSec - 900L) * 1000L;
 
+            // Progressive formats (e.g. itag 18 MP4/AAC) bypass YouTube's GVS PO-token 403 cutoff (~1 min)
+            if (preferProgressive) {
+                ResolvedStream prog = pickProgressiveFormat(sd.optJSONArray("formats"), ua, expAt);
+                if (prog != null) return prog;
+            }
+
             JSONArray af = sd.optJSONArray("adaptiveFormats");
             String bestUrl = null;
             String bestCodec = "AAC";
@@ -510,11 +528,10 @@ final class YtMusic {
 
                     int itag = f.optInt("itag", 0);
                     int br = f.optInt("bitrate", 64000);
-                    long clen = parseLongSafe(f.optString("contentLength", "-1"));
+                    long clen = extractContentLength(f, u);
                     boolean isMp4 = mime.contains("mp4") || mime.contains("mp4a");
                     boolean isOpus = mime.contains("opus");
 
-                    // Strongly prefer itag 140 (128k AAC/M4A: fast start, tiny 3-4MB size, hardware decoded, clean .m4a downloads!)
                     int score = (br / 1000);
                     if (itag == 140) score += 160;
                     else if (isMp4) score += 85;
@@ -535,20 +552,49 @@ final class YtMusic {
             if (bestUrl != null) {
                 return new ResolvedStream(bestUrl, ua, bestCodec, bestMime, bestBr, bestClen, expAt);
             }
-            JSONArray fmts = sd.optJSONArray("formats");
-            if (fmts != null) {
-                for (int i = 0; i < fmts.length(); i++) {
-                    JSONObject f = fmts.optJSONObject(i);
-                    if (f == null) continue;
-                    String u = f.optString("url", "");
-                    if (!u.isEmpty()) {
-                        long clen = parseLongSafe(f.optString("contentLength", "-1"));
-                        return new ResolvedStream(u, ua, "AAC", "audio/mp4", 128, clen, expAt);
-                    }
-                }
-            }
+            return pickProgressiveFormat(sd.optJSONArray("formats"), ua, expAt);
         } catch (Exception ignored) { }
         return null;
+    }
+
+    private static ResolvedStream pickProgressiveFormat(JSONArray fmts, String ua, long expAt) {
+        if (fmts == null) return null;
+        String bestUrl = null;
+        long bestClen = -1L;
+        int bestScore = -1;
+        for (int i = 0; i < fmts.length(); i++) {
+            JSONObject f = fmts.optJSONObject(i);
+            if (f == null) continue;
+            String u = f.optString("url", "");
+            if (u.isEmpty()) continue;
+            int itag = f.optInt("itag", 0);
+            String mime = f.optString("mimeType", "").toLowerCase(Locale.ROOT);
+            int score = 10;
+            if (itag == 18) score += 100; // 360p MP4 with 96-128k AAC audio, small & 100% PO-token-free
+            else if (mime.contains("mp4")) score += 40;
+            long clen = extractContentLength(f, u);
+            if (clen > 0) score += 15;
+            if (score > bestScore) {
+                bestScore = score;
+                bestUrl = u;
+                bestClen = clen;
+            }
+        }
+        return bestUrl == null ? null : new ResolvedStream(bestUrl, ua, "AAC", "video/mp4", 128, bestClen, expAt);
+    }
+
+    private static long extractContentLength(JSONObject f, String url) {
+        long clen = parseLongSafe(f.optString("contentLength", "-1"));
+        if (clen > 0 || url == null) return clen;
+        int idx = url.indexOf("clen=");
+        if (idx >= 0) {
+            int start = idx + 5;
+            int end = url.indexOf('&', start);
+            String val = end > start ? url.substring(start, end) : url.substring(start);
+            long parsed = parseLongSafe(val);
+            if (parsed > 0) return parsed;
+        }
+        return -1L;
     }
 
     private static ResolvedStream resolveViaInvidious(String videoId) {
