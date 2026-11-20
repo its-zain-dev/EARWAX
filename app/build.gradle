@@ -31,9 +31,8 @@ android {
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             def ksPath = System.getenv('EARWAX_KEYSTORE')
-            signingConfig (ksPath != null && !ksPath.isEmpty() && file(ksPath).exists())
-                    ? signingConfigs.release
-                    : signingConfigs.debug
+            def hasReleaseKey = ksPath != null && !ksPath.isEmpty() && file(ksPath).exists()
+            signingConfig = hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
     }
     compileOptions {
