@@ -53,6 +53,7 @@ public class MainActivity extends Activity {
         }
 
         handleIntent(getIntent());
+        AppUpdater.checkOnEnter(this);
     }
 
     @Override
@@ -64,6 +65,7 @@ public class MainActivity extends Activity {
             stage.setMode(m);
         }
         if (stage != null) stage.invalidate();
+        AppUpdater.onResume(this);
     }
 
     @Override

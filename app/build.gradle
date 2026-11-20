@@ -3,20 +3,37 @@ plugins { id 'com.android.application' }
 android {
     namespace 'app.earwax'
     compileSdk 34
+    def vcProp = project.findProperty('versionCode')
+    def vnProp = project.findProperty('versionName')
     defaultConfig {
         applicationId 'app.earwax'
         minSdk 26
         targetSdk 34
         resourceConfigurations += ['en', 'ar']
-        versionCode 5
-        versionName '4.5'
+        versionCode vcProp ? vcProp.toInteger() : 6
+        versionName vnProp ? vnProp.toString() : '4.6'
+    }
+    signingConfigs {
+        release {
+            def ksPath = System.getenv('EARWAX_KEYSTORE')
+            if (ksPath != null && !ksPath.isEmpty() && file(ksPath).exists()) {
+                storeFile file(ksPath)
+                storeType 'PKCS12'
+                storePassword System.getenv('EARWAX_STORE_PASS')
+                keyAlias System.getenv('EARWAX_KEY_ALIAS')
+                keyPassword System.getenv('EARWAX_KEY_PASS')
+            }
+        }
     }
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+            def ksPath = System.getenv('EARWAX_KEYSTORE')
+            signingConfig (ksPath != null && !ksPath.isEmpty() && file(ksPath).exists())
+                    ? signingConfigs.release
+                    : signingConfigs.debug
         }
     }
     compileOptions {
