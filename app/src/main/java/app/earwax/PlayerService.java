@@ -764,7 +764,7 @@ public final class PlayerService extends Service {
         dsp.want = viewers > 0;
     }
 
-    void setTheme(int idx) {
+    void selectTheme(int idx) {
         Theme.set(idx);
         Prefs.theme(this, Theme.index());
         scheduleNotif();

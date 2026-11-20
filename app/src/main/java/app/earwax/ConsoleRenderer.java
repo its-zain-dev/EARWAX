@@ -1435,7 +1435,7 @@ final class ConsoleRenderer {
                 float ty = themeRowY();
                 for (int i = 0; i < Theme.PALETTES.length; i++) {
                     if (Math.hypot(x - themeOrbX(i), y - ty) < 26f) {
-                        sv.setTheme(i);
+                        sv.selectTheme(i);
                         host.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                         return;
                     }
