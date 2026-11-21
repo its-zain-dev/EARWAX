@@ -146,12 +146,15 @@ final class PopupView extends View implements PlayerService.Listener {
         dm = s.getResources().getDisplayMetrics();
         baseDp = "orb".equals(name) ? 248f : ("pill".equals(name) ? 324f : 356f);
         scale = Math.max(0.65f, Math.min(1.85f, Prefs.popupScale(s, name)));
-        sk = Skin.load(s, name, 0);
+        // Decode popup & drawer skins to native device screen width (razor-sharp 1:1 without oversizing VRAM!)
+        int popMaxW = Math.min(1440, Math.max(720, dm.widthPixels));
+        int drawerMaxW = Math.min(888, Math.max(480, Math.round(dm.widthPixels * 0.72f)));
+        sk = Skin.load(s, name, popMaxW);
         aspect = sk.h / (float) sk.w;
         slop = ViewConfiguration.get(s).getScaledTouchSlop();
 
-        drawerL = Skin.loadBitmap(s, "skins/drawer_l.png", 0);
-        drawerR = Skin.loadBitmap(s, "skins/drawer_r.png", 0);
+        drawerL = Skin.loadBitmap(s, "skins/drawer_l.png", drawerMaxW);
+        drawerR = Skin.loadBitmap(s, "skins/drawer_r.png", drawerMaxW);
         JSONObject dj = Skin.loadJson(s, "skins/drawer.json");
         if (dj != null) {
             dW = (float) dj.optDouble("w", 592.0);

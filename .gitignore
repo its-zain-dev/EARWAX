@@ -5,3 +5,4 @@ local.properties
 .idea/
 __pycache__/
 tools/bust_render
+tools/popup_render

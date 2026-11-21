@@ -87,8 +87,9 @@ final class StageView extends View implements PlayerService.Listener {
 
     StageView(Context c) {
         super(c);
-        // Decode full crisp 1080p HD bust & ear pods without artificial downscaling!
-        int targetW = Math.min(1080, Math.max(960, c.getResources().getDisplayMetrics().widthPixels));
+        // Decode bust cleanly to device screen width (capped at 1080px — zero 1440p RAM bloat on low-RAM phones!)
+        int screenW = c.getResources().getDisplayMetrics().widthPixels;
+        int targetW = Math.min(1080, Math.max(720, screenW));
         head = Skin.load(c, "bust", targetW);
         console = new ConsoleRenderer(c, this, head.panel);
         gyro = new GyroParallax(c);
@@ -96,9 +97,12 @@ final class StageView extends View implements PlayerService.Listener {
         vizMode = Prefs.vizMode(c);
         sc = new OverScroller(c);
 
-        try (InputStream in = c.getAssets().open("skins/bg.jpg")) { bg = BitmapFactory.decodeStream(in); } catch (Exception ignored) { }
-        try (InputStream in = c.getAssets().open("skins/logo.png")) { logo = BitmapFactory.decodeStream(in); } catch (Exception ignored) { }
-        try (InputStream in = c.getAssets().open("skins/mark.png")) { mark = BitmapFactory.decodeStream(in); } catch (Exception ignored) { }
+        bg = Skin.loadBitmap(c, "skins/bg.jpg", targetW);
+        logo = Skin.loadBitmap(c, "skins/logo.png", targetW);
+        mark = Skin.loadBitmap(c, "skins/mark.png", 512);
+        if (bg != null) try { bg.setHasMipMap(true); } catch (Exception ignored) { }
+        if (logo != null) try { logo.setHasMipMap(true); } catch (Exception ignored) { }
+        if (mark != null) try { mark.setHasMipMap(true); } catch (Exception ignored) { }
 
         tpTitle.setTypeface(Theme.TF_BOLD);
         tpBody.setTypeface(Theme.TF_REGULAR);
@@ -255,7 +259,7 @@ final class StageView extends View implements PlayerService.Listener {
     private void bakeBackdrop() {
         if (bgBake != null) bgBake.recycle();
         if (w <= 0 || h <= 0) return;
-        // Full crisp ARGB_8888 static backdrop (zero banding, zero per-frame gradient cost!)
+        // Crisp static backdrop capped at device width (max 1080px -> zero lag / low RAM!)
         int bw = Math.min(w, 1080);
         int bh = Math.max(1, Math.round(h * (bw / (float) w)));
         bgBake = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);

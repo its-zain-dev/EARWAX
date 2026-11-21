@@ -110,10 +110,10 @@ final class Skin {
             JSONObject co = j.optJSONObject("cone");
             if (co != null) {
                 s.coneW = (float) co.getDouble("w");
-                s.cone = decodeMaxW(c, "skins/cone.png", 256);
+                s.cone = decodeMaxW(c, "skins/cone.png", 384);
             }
             try {
-                s.pearl = decodeMaxW(c, "skins/pearl.png", 256);
+                s.pearl = decodeMaxW(c, "skins/pearl.png", 384);
             } catch (Exception ignored) { }
             return s;
         } catch (Exception e) {
@@ -167,6 +167,7 @@ final class Skin {
 
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        o.inScaled = false;
         o.inSampleSize = ss;
         Bitmap b;
         try (InputStream in = c.getAssets().open(path)) {

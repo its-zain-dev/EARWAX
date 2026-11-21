@@ -34,8 +34,8 @@ import java.util.concurrent.Executors;
  *  - Low-RAM trimCache() frees memory when app is hidden so weak devices never kill audio!
  */
 final class Art {
-    private static final int HI_N = 320;
-    private static final int THUMB_N = 96;
+    private static final int HI_N = 384;
+    private static final int THUMB_N = 128;
     private static final ExecutorService POOL = Executors.newFixedThreadPool(2);
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Set<String> IN_FLIGHT = Collections.synchronizedSet(new HashSet<>());

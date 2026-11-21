@@ -598,17 +598,20 @@ inline Vec3 shade_hit(float hx, float hy, float hz, const Vec3& n, int mat, floa
 
 int main(int argc, char** argv) {
     if (argc < 4) {
-        std::fprintf(stderr, "Usage: %s <W> <H> <out.raw> [threads]\n", argv[0]);
+        std::fprintf(stderr, "Usage: %s <W> <H> <out.raw> [threads] [ss]\n", argv[0]);
         return 1;
     }
     const int W = std::atoi(argv[1]);
     const int H = std::atoi(argv[2]);
     const char* out_path = argv[3];
-    int n_threads = (argc >= 5) ? std::atoi(argv[4]) : (int)std::thread::hardware_concurrency();
-    if (n_threads < 1) n_threads = 4;
+    int n_threads = (argc >= 5) ? std::atoi(argv[4]) : 2;
+    if (n_threads < 1) n_threads = 2;
+    int ss = (argc >= 6) ? std::max(1, std::atoi(argv[5])) : 2;
 
     const float S = W / WORLD_W;
-    const float px_world = 1.0f / S;
+    const float px_world = 1.0f / (S * ss);
+    const float inv_ss = 1.0f / (float)ss;
+    const float inv_samples = 1.0f / (float)(ss * ss);
     const float z_start = 2.4f;
     const float max_dist = 4.6f;
     const int max_steps = 120;
@@ -622,66 +625,83 @@ int main(int argc, char** argv) {
         while (true) {
             int i = next_row.fetch_add(1);
             if (i >= H) break;
-            float y = (YC * S - (i + 0.5f)) / S;
-            if (y >= 1.58f) continue;
+            float y_center = (YC * S - (i + 0.5f)) / S;
+            if (y_center >= 1.60f) continue;
 
             uint8_t* row_ptr = rgba.data() + (size_t)i * W * 4;
             for (int j = 0; j < W; ++j) {
-                float x = (j + 0.5f - W * 0.5f) / S;
-                if (std::fabs(x) >= 1.62f) continue;
+                float x_center = (j + 0.5f - W * 0.5f) / S;
+                if (std::fabs(x_center) >= 1.64f) continue;
 
-                float t = 0.0f;
-                float mind = 9.0f;
-                bool hit = false;
-                for (int s = 0; s < max_steps; ++s) {
-                    float z = z_start - t;
-                    float d = eval_dist(x, y, z);
-                    if (d < mind) mind = d;
-                    if (d < eps) { hit = true; break; }
-                    t += d * 0.94f;
-                    if (t >= max_dist) break;
+                float acc_r = 0.0f, acc_g = 0.0f, acc_b = 0.0f, acc_a = 0.0f;
+
+                for (int sy = 0; sy < ss; ++sy) {
+                    float y = (YC * S - (i + (sy + 0.5f) * inv_ss)) / S;
+                    for (int sx = 0; sx < ss; ++sx) {
+                        float x = (j + (sx + 0.5f) * inv_ss - W * 0.5f) / S;
+
+                        float t = 0.0f;
+                        float mind = 9.0f;
+                        bool hit = false;
+                        for (int s = 0; s < max_steps; ++s) {
+                            float z = z_start - t;
+                            float d = eval_dist(x, y, z);
+                            if (d < mind) mind = d;
+                            if (d < eps) { hit = true; break; }
+                            t += d * 0.94f;
+                            if (t >= max_dist) break;
+                        }
+
+                        float aa = clampf(1.0f - mind / (px_world * 1.15f), 0.0f, 1.0f);
+                        float alpha = hit ? 1.0f : aa;
+                        if (alpha <= 0.002f) continue;
+
+                        Vec3 col = {0.48f, 0.62f, 0.80f};
+                        if (hit) {
+                            float hz = z_start - t;
+                            SceneHit sh_hit = eval_scene(x, y, hz);
+                            Vec3 n = calc_normal(x, y, hz, norm_e);
+
+                            // 5-tap multi-scale Ambient Occlusion
+                            float ao = 1.0f;
+                            float sca = 1.0f;
+                            const float ao_steps[5] = {0.018f, 0.055f, 0.12f, 0.22f, 0.36f};
+                            for (int k = 0; k < 5; ++k) {
+                                float step_h = ao_steps[k];
+                                float dd = eval_dist(x + n.x * step_h, y + n.y * step_h, hz + n.z * step_h);
+                                ao -= clampf(step_h - dd, 0.0f, 1.0f) * sca * 1.75f;
+                                sca *= 0.60f;
+                            }
+                            ao = clampf(ao, 0.24f, 1.0f);
+
+                            // 12-step soft key shadow
+                            float sh = 1.0f;
+                            float st = 0.035f;
+                            for (int k = 0; k < 12; ++k) {
+                                float sd = eval_dist(x + L1.x * st, y + L1.y * st, hz + L1.z * st);
+                                sh = std::min(sh, clampf(5.6f * sd / st, 0.0f, 1.0f));
+                                st += clampf(sd, 0.03f, 0.18f);
+                                if (sh < 0.28f || st > 2.2f) break;
+                            }
+                            sh = clampf(sh, 0.30f, 1.0f);
+
+                            col = shade_hit(x, y, hz, n, sh_hit.mat, ao, sh, true);
+                        }
+
+                        acc_r += col.x * alpha;
+                        acc_g += col.y * alpha;
+                        acc_b += col.z * alpha;
+                        acc_a += alpha;
+                    }
                 }
 
-                float aa = clampf(1.0f - mind / (px_world * 1.15f), 0.0f, 1.0f);
-                float alpha = hit ? 1.0f : aa;
-                if (alpha <= 0.002f) continue;
-
-                Vec3 col = {0.48f, 0.62f, 0.80f};
-                if (hit) {
-                    float hz = z_start - t;
-                    SceneHit sh_hit = eval_scene(x, y, hz);
-                    Vec3 n = calc_normal(x, y, hz, norm_e);
-
-                    // 5-tap multi-scale Ambient Occlusion
-                    float ao = 1.0f;
-                    float sca = 1.0f;
-                    const float ao_steps[5] = {0.018f, 0.055f, 0.12f, 0.22f, 0.36f};
-                    for (int k = 0; k < 5; ++k) {
-                        float step_h = ao_steps[k];
-                        float dd = eval_dist(x + n.x * step_h, y + n.y * step_h, hz + n.z * step_h);
-                        ao -= clampf(step_h - dd, 0.0f, 1.0f) * sca * 1.75f;
-                        sca *= 0.60f;
-                    }
-                    ao = clampf(ao, 0.24f, 1.0f);
-
-                    // 12-step soft key shadow
-                    float sh = 1.0f;
-                    float st = 0.035f;
-                    for (int k = 0; k < 12; ++k) {
-                        float sd = eval_dist(x + L1.x * st, y + L1.y * st, hz + L1.z * st);
-                        sh = std::min(sh, clampf(5.6f * sd / st, 0.0f, 1.0f));
-                        st += clampf(sd, 0.03f, 0.18f);
-                        if (sh < 0.28f || st > 2.2f) break;
-                    }
-                    sh = clampf(sh, 0.30f, 1.0f);
-
-                    col = shade_hit(x, y, hz, n, sh_hit.mat, ao, sh, true);
-                }
-
-                row_ptr[j * 4 + 0] = (uint8_t)clampf(col.x * 255.0f + 0.5f, 0.0f, 255.0f);
-                row_ptr[j * 4 + 1] = (uint8_t)clampf(col.y * 255.0f + 0.5f, 0.0f, 255.0f);
-                row_ptr[j * 4 + 2] = (uint8_t)clampf(col.z * 255.0f + 0.5f, 0.0f, 255.0f);
-                row_ptr[j * 4 + 3] = (uint8_t)clampf(alpha * 255.0f + 0.5f, 0.0f, 255.0f);
+                float out_a = acc_a * inv_samples;
+                if (out_a <= 0.002f) continue;
+                float inv_a = 1.0f / std::max(acc_a, 1e-6f);
+                row_ptr[j * 4 + 0] = (uint8_t)clampf((acc_r * inv_a) * 255.0f + 0.5f, 0.0f, 255.0f);
+                row_ptr[j * 4 + 1] = (uint8_t)clampf((acc_g * inv_a) * 255.0f + 0.5f, 0.0f, 255.0f);
+                row_ptr[j * 4 + 2] = (uint8_t)clampf((acc_b * inv_a) * 255.0f + 0.5f, 0.0f, 255.0f);
+                row_ptr[j * 4 + 3] = (uint8_t)clampf(out_a * 255.0f + 0.5f, 0.0f, 255.0f);
             }
         }
     };

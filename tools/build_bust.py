@@ -75,12 +75,12 @@ def compile_cpp_renderer():
     return exe
 
 
-def render_bust_cpp(W, H, threads=4):
+def render_bust_cpp(W, H, threads=2, ss=2):
     exe = compile_cpp_renderer()
     with tempfile.NamedTemporaryFile(suffix='.rgba', delete=False) as tf:
         raw_path = tf.name
     try:
-        subprocess.check_call([exe, str(W), str(H), raw_path, str(threads)])
+        subprocess.check_call([exe, str(W), str(H), raw_path, str(threads), str(ss)])
         data = np.fromfile(raw_path, dtype=np.uint8).reshape(H, W, 4)
         return data.astype(np.float32) / 255.0
     finally:
@@ -88,9 +88,9 @@ def render_bust_cpp(W, H, threads=4):
             os.remove(raw_path)
 
 
-# ------------------------------------------------------------------ 3x Supersampled Speaker Cone (cone.png)
-def render_speaker_cone(size=256):
-    ss = 3
+# ------------------------------------------------------------------ 2x Supersampled Crisp Speaker Cone (cone.png)
+def render_speaker_cone(size=384):
+    ss = 2
     M = size * ss
     c = (np.arange(M, dtype=np.float32) + 0.5) / M * 2.0 - 1.0
     X, Y = np.meshgrid(c, -c)
@@ -115,7 +115,7 @@ def render_speaker_cone(size=256):
     nx *= inv; ny *= inv; nz *= inv
 
     rx = 2.0 * nz * nx; ry = 2.0 * nz * ny; rz = 2.0 * nz * nz - 1.0
-    env = env_y2k(rx, ry, rz, softness=1.25)
+    env = env_y2k(rx, ry, rz, softness=1.15)
 
     lx, ly, lz = -0.40, 0.66, 0.64
     ln = np.sqrt(lx * lx + ly * ly + lz * lz)
@@ -125,7 +125,7 @@ def render_speaker_cone(size=256):
     hx /= hn; hy /= hn; hz /= hn
 
     diff = np.clip(nx * lx + ny * ly + nz * lz, 0.0, 1.0)
-    spec = np.clip(nx * hx + ny * hy + nz * hz, 0.0, 1.0) ** 72.0
+    spec = np.clip(nx * hx + ny * hy + nz * hz, 0.0, 1.0) ** 82.0
     brush = 0.82 + 0.18 * np.sin(ang * 2.0 + 0.85) + 0.07 * np.sin(ang * 48.0)
     ribs = 0.88 + 0.12 * np.cos((r - 0.34) * 76.0)
 
@@ -135,19 +135,19 @@ def render_speaker_cone(size=256):
     c_sur = env * np.array([0.16, 0.19, 0.24], np.float32) + diff[..., None] * 0.10 + spec[..., None] * 0.25
 
     col = np.where((r < 0.34)[..., None], c_cap, np.where((r < 0.81)[..., None], c_cone, c_sur))
-    coil_ring = np.exp(-((r - 0.345) / 0.022) ** 2) * 0.95
-    outer_ring = np.exp(-((r - 0.815) / 0.020) ** 2) * 0.55
+    coil_ring = np.exp(-((r - 0.345) / 0.018) ** 2) * 0.95
+    outer_ring = np.exp(-((r - 0.815) / 0.017) ** 2) * 0.55
     col = col + (coil_ring + outer_ring)[..., None] * np.array([0.18, 0.92, 1.25], np.float32)
 
     col = tonemap_y2k(col)
     hi = np.dstack([col, a]).astype(np.float32)
     out = downsample_rgba(hi, size, size)
-    return finish_y2k(out, bloom=0.22, bloom_thr=0.78, haze=0.02)
+    return finish_y2k(out, bloom=0.14, bloom_thr=0.84, haze=0.0)
 
 
-# ------------------------------------------------------------------ 3x Supersampled Y2K Aqua Crown Orb (pearl.png)
-def render_crown_orb(size=256):
-    ss = 3
+# ------------------------------------------------------------------ 2x Supersampled Crisp Y2K Aqua Crown Orb (pearl.png)
+def render_crown_orb(size=384):
+    ss = 2
     M = size * ss
     c = (np.arange(M, dtype=np.float32) + 0.5) / M * 2.0 - 1.0
     X, Y = np.meshgrid(c, -c)
@@ -160,7 +160,7 @@ def render_crown_orb(size=256):
     nx *= inv; ny *= inv; nz *= inv
 
     rx = 2.0 * nz * nx; ry = 2.0 * nz * ny; rz = 2.0 * nz * nz - 1.0
-    env = env_y2k(rx, ry, rz, softness=1.0)
+    env = env_y2k(rx, ry, rz, softness=0.95)
     fresnel = (1.0 - np.clip(nz, 0.0, 1.0)) ** 2.6
 
     caustic = np.exp(-((X - 0.08) ** 2 / 0.24 + (Y + 0.42) ** 2 / 0.14)) * 1.18
@@ -174,28 +174,28 @@ def render_crown_orb(size=256):
     orb = np.stack([orb_r, orb_g, orb_b], axis=-1)
     orb += meniscus[..., None] * np.array([0.92, 0.98, 1.08], np.float32) + pinpoint[..., None]
 
-    ring_mix = sstep(0.83, 0.87, r)
+    ring_mix = sstep(0.835, 0.865, r)
     ring_u = clamp((r - 0.84) / 0.12, 0.0, 1.0) * 2.0 - 1.0
     rnx = (X / np.maximum(r, 1e-4)) * ring_u
     rny = (Y / np.maximum(r, 1e-4)) * ring_u
     rnz = np.sqrt(np.maximum(0.05, 1.0 - ring_u * ring_u))
     rrx = 2.0 * rnz * rnx; rry = 2.0 * rnz * rny; rrz = 2.0 * rnz * rnz - 1.0
-    chrome_ring = env_y2k(rrx, rry, rrz, softness=0.95) * np.array([0.95, 0.99, 1.06], np.float32)
+    chrome_ring = env_y2k(rrx, rry, rrz, softness=0.92) * np.array([0.95, 0.99, 1.06], np.float32)
 
     col = orb * (1.0 - ring_mix[..., None]) + chrome_ring * ring_mix[..., None]
     col = tonemap_y2k(col)
 
     hi = np.dstack([col, a]).astype(np.float32)
     out = downsample_rgba(hi, size, size)
-    return finish_y2k(out, bloom=0.30, bloom_thr=0.74, haze=0.02)
+    return finish_y2k(out, bloom=0.16, bloom_thr=0.82, haze=0.0)
 
 
 # ------------------------------------------------------------------ Main Pipeline
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--w', type=int, default=1080)
-    ap.add_argument('--ss', type=float, default=1.65, help='Supersample factor for razor-sharp 3D anti-aliasing')
-    ap.add_argument('--threads', type=int, default=os.cpu_count() or 4)
+    ap.add_argument('--ss', type=int, default=2, help='In-loop C++ SSAA factor (zero extra RAM!)')
+    ap.add_argument('--threads', type=int, default=2)
     ap.add_argument('--out', default='app/src/main/assets/skins')
     ap.add_argument('--part', default='all', choices=['all', 'bust', 'sprites'])
     A = ap.parse_args()
@@ -203,8 +203,6 @@ def main():
     os.makedirs(A.out, exist_ok=True)
     OUT_W = A.w
     OUT_H = int(round(OUT_W * DESIGN_H / DESIGN_W))
-    W = int(round(OUT_W * A.ss))
-    H = int(round(OUT_H * A.ss))
 
     def to_design_px(wx, wy):
         return [round(wx * S0 + DESIGN_W * 0.5, 1), round(YC * S0 - wy * S0, 1)]
@@ -212,19 +210,18 @@ def main():
     t0 = time.time()
 
     if A.part in ('all', 'bust'):
-        print(f"[bust] Raymarching C++17 Realistic 3D Humanoid Bust + Ears + Neck ({W}x{H} -> {OUT_W}x{OUT_H})...", flush=True)
-        img = render_bust_cpp(W, H, threads=A.threads)
-        if A.ss > 1.01:
-            img = downsample_rgba(img, OUT_W, OUT_H)
-        img = finish_y2k(img, bloom=0.18, bloom_thr=0.82, haze=0.004)
+        print(f"[bust] Raymarching C++17 Realistic 3D Humanoid Bust ({OUT_W}x{OUT_H}, {A.ss}x{A.ss} in-loop SSAA)...", flush=True)
+        img = render_bust_cpp(OUT_W, OUT_H, threads=A.threads, ss=A.ss)
+        img = finish_y2k(img, bloom=0.14, bloom_thr=0.84, haze=0.0)
         save_rgba(img, os.path.join(A.out, 'bust.png'))
+        del img
         print(f"[bust] Saved C++17 realistic bust.png ({OUT_W}x{OUT_H}) in {time.time() - t0:.1f}s", flush=True)
 
     if A.part in ('all', 'sprites'):
         t2 = time.time()
-        save_rgba(render_speaker_cone(256), os.path.join(A.out, 'cone.png'))
-        save_rgba(render_crown_orb(256), os.path.join(A.out, 'pearl.png'))
-        print(f"[sprites] Saved 256x256 cone.png & pearl.png in {time.time() - t2:.1f}s", flush=True)
+        save_rgba(render_speaker_cone(384), os.path.join(A.out, 'cone.png'))
+        save_rgba(render_crown_orb(384), os.path.join(A.out, 'pearl.png'))
+        print(f"[sprites] Saved 384x384 cone.png & pearl.png in {time.time() - t2:.1f}s", flush=True)
 
     if A.part in ('all', 'bust'):
         ids = ['prev', 'play', 'next', 'list', 'eq', 'fx']

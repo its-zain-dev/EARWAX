@@ -33,43 +33,59 @@ def pick_font(paths, size):
             return ImageFont.truetype(p, int(size))
     return ImageFont.load_default()
 
-def build_backdrop(path, W=1080, H=2340):
-    """Atmospheric Early-2000s Y2K Cyber-Studio Backdrop (full-HD crisp volumetric studio beams)."""
-    Y, X = np.mgrid[0:H, 0:W].astype(np.float32)
-    u, v = X / W, Y / H
+def _gauss1d(arr, sigma, axis):
+    """Pure float32 separable Gaussian blur (zero 8-bit quantization banding!)."""
+    if sigma < 0.2:
+        return arr
+    rad = max(1, int(np.ceil(sigma * 3.0)))
+    x = np.arange(-rad, rad + 1, dtype=np.float32)
+    k = np.exp(-0.5 * (x / sigma) ** 2)
+    k /= k.sum()
+    pad = [(0, 0)] * arr.ndim
+    pad[axis] = (rad, rad)
+    ap = np.pad(arr, pad, mode='edge')
+    return np.apply_along_axis(lambda v: np.convolve(v, k, mode='valid'), axis, ap).astype(np.float32)
 
-    # Deep liquid-obsidian-navy base gradient
+def _gauss2d_f32(arr, sigma):
+    return _gauss1d(_gauss1d(arr, sigma, axis=1), sigma, axis=0)
+
+def build_backdrop(path, W=1080, H=2340):
+    """Atmospheric Early-2000s Y2K Cyber-Studio Backdrop (row-chunked for <12MB peak RAM!)."""
+    out = np.empty((H, W, 3), dtype=np.uint8)
+    rng = np.random.default_rng(2001)
     top = np.array([11.0, 22.0, 42.0], np.float32)
     mid = np.array([6.0, 13.0, 26.0], np.float32)
     bot = np.array([3.0, 6.0, 14.0], np.float32)
-    t = v[..., None]
-    img = np.where(t < 0.5, top * (1.0 - t * 2.0) + mid * (t * 2.0),
-                   mid * (1.0 - (t - 0.5) * 2.0) + bot * ((t - 0.5) * 2.0))
+    u = (np.arange(W, dtype=np.float32) / W)[None, :]
+    chunk = 256
+    for y0 in range(0, H, chunk):
+        y1 = min(H, y0 + chunk)
+        v = (np.arange(y0, y1, dtype=np.float32) / H)[:, None]
+        t = v[..., None]
+        img = np.where(t < 0.5, top * (1.0 - t * 2.0) + mid * (t * 2.0),
+                       mid * (1.0 - (t - 0.5) * 2.0) + bot * ((t - 0.5) * 2.0))
+        img = np.broadcast_to(img, (y1 - y0, W, 3)).copy()
 
-    def glow(cx, cy, rx, ry, col, k):
-        g = np.exp(-(((u - cx) / rx) ** 2 + ((v - cy) / ry) ** 2))
-        return g[..., None] * np.array(col, np.float32) * k
+        def glow(cx, cy, rx, ry, col, k):
+            g = np.exp(-(((u - cx) / rx) ** 2 + ((v - cy) / ry) ** 2))
+            return g[..., None] * np.array(col, np.float32) * k
 
-    # Volumetric early-2000s studio cyan + cobalt/violet rim beams
-    img += glow(0.22, 0.22, 0.52, 0.24, (28, 128, 185), 0.72)
-    img += glow(0.82, 0.28, 0.46, 0.26, (62, 54, 162), 0.62)
-    img += glow(0.50, 0.16, 0.40, 0.18, (40, 160, 210), 0.35)
-    img += glow(0.48, 0.86, 0.65, 0.22, (18, 62, 118), 0.42)
+        img += glow(0.22, 0.22, 0.52, 0.24, (28, 128, 185), 0.72)
+        img += glow(0.82, 0.28, 0.46, 0.26, (62, 54, 162), 0.62)
+        img += glow(0.50, 0.16, 0.40, 0.18, (40, 160, 210), 0.35)
+        img += glow(0.48, 0.86, 0.65, 0.22, (18, 62, 118), 0.42)
 
-    # Subtle diagonal Y2K studio glass light rays
-    ray1 = np.clip(np.sin((u * 1.4 - v * 0.85) * 6.5) * 0.5 + 0.5, 0.0, 1.0) ** 4.0
-    ray2 = np.clip(np.sin((u * 0.9 + v * 1.1) * 5.0 + 1.2) * 0.5 + 0.5, 0.0, 1.0) ** 5.0
-    img += (ray1[..., None] * np.array([22, 74, 118], np.float32) * 0.18
-            + ray2[..., None] * np.array([42, 34, 96], np.float32) * 0.12)
-
-    # Anti-banding studio film grain
-    rng = np.random.default_rng(2001)
-    img += rng.normal(0.0, 1.4, img.shape).astype(np.float32)
-    Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), 'RGB').save(path, quality=92)
+        ray1 = np.clip(np.sin((u * 1.4 - v * 0.85) * 6.5) * 0.5 + 0.5, 0.0, 1.0) ** 4.0
+        ray2 = np.clip(np.sin((u * 0.9 + v * 1.1) * 5.0 + 1.2) * 0.5 + 0.5, 0.0, 1.0) ** 5.0
+        img += (ray1[..., None] * np.array([22, 74, 118], np.float32) * 0.18
+                + ray2[..., None] * np.array([42, 34, 96], np.float32) * 0.12)
+        img += rng.normal(0.0, 1.2, img.shape).astype(np.float32)
+        out[y0:y1] = np.clip(img, 0, 255).astype(np.uint8)
+    Image.fromarray(out, 'RGB').save(path, quality=92)
     print(f"[brand] Wrote {path} ({W}x{H})")
 
-def build_chrome_wordmark(txt='EARWAX', size=96, track=0.11, pad=36):
-    """Pure Python 3D Beveled Early-2000s Liquid-Chrome Wordmark with Aqua Specular Rim."""
+def build_chrome_wordmark(txt='EARWAX', size=180, track=0.11, pad=36):
+    """Pure Python Ultra-HD 3D Beveled Early-2000s Liquid-Chrome Wordmark (float32 mirror-smooth normals!)."""
     SC = 2
     f = pick_font(FONT_CANDIDATES, size * SC)
     adv = [f.getlength(c) + size * SC * track for c in txt]
@@ -83,12 +99,13 @@ def build_chrome_wordmark(txt='EARWAX', size=96, track=0.11, pad=36):
         dr.text((x, h * 0.5), c, font=f, fill=255, anchor='lm')
         x += a_len
 
-    # Multi-radius Pillow blur builds a silky smooth 3D pillowed heightfield (zero SciPy needed!)
+    # Pure float32 multi-radius Gaussian blur -> silky mirror-smooth 3D pillowed heightfield (zero 8-bit speckle!)
     m_f = np.asarray(im, dtype=np.float32) / 255.0
-    h1 = np.asarray(im.filter(ImageFilter.GaussianBlur(radius=3.5 * SC)), dtype=np.float32) / 255.0
-    h2 = np.asarray(im.filter(ImageFilter.GaussianBlur(radius=9.0 * SC)), dtype=np.float32) / 255.0
-    h3 = np.asarray(im.filter(ImageFilter.GaussianBlur(radius=18.0 * SC)), dtype=np.float32) / 255.0
-    hh = (h1 * 0.45 + h2 * 0.35 + h3 * 0.20) * (12.0 * SC)
+    scale_r = (size / 164.0) * SC
+    h1 = _gauss2d_f32(m_f, 3.8 * scale_r)
+    h2 = _gauss2d_f32(m_f, 9.5 * scale_r)
+    h3 = _gauss2d_f32(m_f, 18.5 * scale_r)
+    hh = (h1 * 0.45 + h2 * 0.35 + h3 * 0.20) * (13.0 * scale_r)
 
     gy, gx = np.gradient(hh)
     nx, ny, nz = -gx * 1.35, gy * 1.35, np.ones_like(hh)
@@ -102,7 +119,7 @@ def build_chrome_wordmark(txt='EARWAX', size=96, track=0.11, pad=36):
     ln = np.sqrt(lx * lx + ly * ly + lz * lz)
     hx, hy, hz = lx / ln, ly / ln, lz / ln + 1.0
     hn = np.sqrt(hx * hx + hy * hy + hz * hz)
-    spec = np.clip(nx * (hx / hn) + ny * (hy / hn) + nz * (hz / hn), 0.0, 1.0) ** 90.0
+    spec = np.clip(nx * (hx / hn) + ny * (hy / hn) + nz * (hz / hn), 0.0, 1.0) ** 95.0
 
     col = env * np.array([0.96, 0.99, 1.06], np.float32) + spec[..., None] * 1.45
     col += fresnel[..., None] * np.array([0.22, 0.85, 1.15], np.float32) * 0.48
@@ -110,11 +127,11 @@ def build_chrome_wordmark(txt='EARWAX', size=96, track=0.11, pad=36):
 
     rgba = np.dstack([col, m_f]).astype(np.float32)
     lo = downsample_rgba(rgba, w // SC, h // SC)
-    lo = finish_y2k(lo, bloom=0.30, bloom_thr=0.76, haze=0.02)
+    lo = finish_y2k(lo, bloom=0.18, bloom_thr=0.82, haze=0.0)
     out = Image.fromarray((np.clip(lo, 0, 1) * 255).astype(np.uint8), 'RGBA')
     bb = out.getbbox()
     if bb:
-        out = out.crop((max(0, bb[0] - 12), max(0, bb[1] - 12), min(out.width, bb[2] + 12), min(out.height, bb[3] + 12)))
+        out = out.crop((max(0, bb[0] - 18), max(0, bb[1] - 18), min(out.width, bb[2] + 18), min(out.height, bb[3] + 18)))
     return out
 
 def fit_img(img, box_w, box_h):
@@ -146,12 +163,12 @@ def main():
     # 1. Backdrop
     build_backdrop(os.path.join(SK, 'bg.jpg'))
 
-    # 2. 3D Chrome Wordmark (high-res retina)
-    logo = build_chrome_wordmark('EARWAX', 164)
+    # 2. 3D Chrome Wordmark (float32 mirror-smooth bevels, phone-friendly ~850px wide)
+    logo = build_chrome_wordmark('EARWAX', 180)
     logo.save(os.path.join(SK, 'logo.png'), optimize=True)
     print(f"[brand] Wrote logo.png {logo.size}")
 
-    # 3. Sculpted Head Mark (bust head + ear pods + cones + floating crown orbs)
+    # 3. Sculpted Head Mark (bust head + optional legacy ear pods + cones + floating crown orbs)
     bust = Image.open(os.path.join(SK, 'bust.png')).convert('RGBA')
     with open(os.path.join(SK, 'bust.json')) as f:
         J = json.load(f)
@@ -172,7 +189,10 @@ def main():
     comp.alpha_composite(head_only)
 
     for en in ('ear_l', 'ear_r'):
-        e = Image.open(os.path.join(SK, f'{en}.png')).convert('RGBA')
+        ep = os.path.join(SK, f'{en}.png')
+        if en not in J or not os.path.exists(ep):
+            continue
+        e = Image.open(ep).convert('RGBA')
         em = J[en]
         e = e.resize((max(1, int(round(em['w'] * k))), max(1, int(round(em['h'] * k)))), Image.LANCZOS)
         comp.alpha_composite(e, (int(round(em['x'] * k)), int(round(em['y'] * k))))
@@ -191,7 +211,7 @@ def main():
             comp.alpha_composite(pp, (int(round(bx - ps * 0.5)), int(round(by - ps * 0.5))))
 
     bb = comp.getbbox()
-    mark = comp.crop((max(0, bb[0] - 12), max(0, bb[1] - 12), min(comp.width, bb[2] + 12), min(comp.height, bb[3] + 12)))
+    mark = comp.crop((max(0, bb[0] - 16), max(0, bb[1] - 16), min(comp.width, bb[2] + 16), min(comp.height, bb[3] + 16)))
     print(f"[brand] Head mark bbox {mark.size}")
 
     sq = fit_img(mark, 476, 476)
