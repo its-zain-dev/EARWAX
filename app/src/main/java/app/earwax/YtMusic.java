@@ -496,46 +496,28 @@ final class YtMusic {
 
             ResolvedStream fallbackProg = null;
 
-            // Tier 1: InnerTube ANDROID_VR 1.65.10 (with matching VR visitorData + headers) -> unlocks ALL adaptive audio qualities (Opus 160k/48kHz, AAC 128k, Opus 70k, AAC/Opus 48k)!
-            JSONObject vrSd = fetchPlayerStreamingData(videoId, "ANDROID_VR", "1.65.10", 28, UA_VR, forceRefresh);
-            if (vrSd != null) {
-                long expAt = computeExpiry(vrSd);
-                ResolvedStream adaptive = pickBestAdaptive(vrSd.optJSONArray("adaptiveFormats"), UA_VR, expAt, q);
-                if (adaptive != null && verifyStreamPlayable(adaptive)) {
-                    STREAM_CACHE.put(ck, adaptive);
-                    LAST_RESOLVED.put(videoId, adaptive);
-                    return adaptive;
-                }
-                fallbackProg = pickProgressiveFormat(vrSd.optJSONArray("formats"), UA_VR, expAt);
-            }
-
-            // Tier 2: InnerTube ANDROID 20.10.38 -> check adaptive quality first (verified mid-stream), then progressive itag 18 fallback!
+            // Tier 1: InnerTube ANDROID 20.10.38 -> full adaptive audio (Opus 160k/48kHz, AAC 128k, Opus 70k, 48k)
+            // + rock-solid zero-403 progressive itag 18 fallback!
             JSONObject andSd = fetchPlayerStreamingData(videoId, "ANDROID", "20.10.38", 3, UA_ANDROID, false);
             if (andSd != null) {
                 long expAt = computeExpiry(andSd);
-                ResolvedStream adaptive = pickBestAdaptive(andSd.optJSONArray("adaptiveFormats"), UA_ANDROID, expAt, q);
-                if (adaptive != null && verifyStreamPlayable(adaptive)) {
+                ResolvedStream adaptive = verifyAndMeasure(
+                        pickBestAdaptive(andSd.optJSONArray("adaptiveFormats"), UA_ANDROID, expAt, q));
+                if (adaptive != null) {
                     STREAM_CACHE.put(ck, adaptive);
                     LAST_RESOLVED.put(videoId, adaptive);
                     return adaptive;
                 }
-                if (fallbackProg == null) {
-                    fallbackProg = pickProgressiveFormat(andSd.optJSONArray("formats"), UA_ANDROID, expAt);
-                }
+                fallbackProg = verifyAndMeasure(
+                        pickProgressiveFormat(andSd.optJSONArray("formats"), UA_ANDROID, expAt));
             }
 
-            // Tier 3: Guaranteed zero-403 progressive stream if adaptive streams were PO-token gated on this track
-            if (fallbackProg != null) {
-                STREAM_CACHE.put(ck, fallbackProg);
-                LAST_RESOLVED.put(videoId, fallbackProg);
-                return fallbackProg;
-            }
-
-            // Tier 4: InnerTube IOS fallback
+            // Tier 2: InnerTube IOS 20.10.4 -> full adaptive audio at all 4 qualities (verified at 85%!)
             JSONObject iosSd = fetchPlayerStreamingData(videoId, "IOS", "20.10.4", 5, UA_IOS, false);
             if (iosSd != null) {
                 long expAt = computeExpiry(iosSd);
-                ResolvedStream adaptive = pickBestAdaptive(iosSd.optJSONArray("adaptiveFormats"), UA_IOS, expAt, q);
+                ResolvedStream adaptive = verifyAndMeasure(
+                        pickBestAdaptive(iosSd.optJSONArray("adaptiveFormats"), UA_IOS, expAt, q));
                 if (adaptive != null) {
                     STREAM_CACHE.put(ck, adaptive);
                     LAST_RESOLVED.put(videoId, adaptive);
@@ -543,9 +525,36 @@ final class YtMusic {
                 }
             }
 
+            // Tier 3: Verified zero-403 ANDROID progressive itag 18 (100% playable & downloadable even when adaptive is PO-token gated!)
+            if (fallbackProg != null) {
+                STREAM_CACHE.put(ck, fallbackProg);
+                LAST_RESOLVED.put(videoId, fallbackProg);
+                return fallbackProg;
+            }
+
+            // Tier 4: InnerTube ANDROID_VR 1.65.10 (only if verified at 85%!)
+            JSONObject vrSd = fetchPlayerStreamingData(videoId, "ANDROID_VR", "1.65.10", 28, UA_VR, forceRefresh);
+            if (vrSd != null) {
+                long expAt = computeExpiry(vrSd);
+                ResolvedStream adaptive = verifyAndMeasure(
+                        pickBestAdaptive(vrSd.optJSONArray("adaptiveFormats"), UA_VR, expAt, q));
+                if (adaptive != null) {
+                    STREAM_CACHE.put(ck, adaptive);
+                    LAST_RESOLVED.put(videoId, adaptive);
+                    return adaptive;
+                }
+                ResolvedStream vrProg = verifyAndMeasure(
+                        pickProgressiveFormat(vrSd.optJSONArray("formats"), UA_VR, expAt));
+                if (vrProg != null) {
+                    STREAM_CACHE.put(ck, vrProg);
+                    LAST_RESOLVED.put(videoId, vrProg);
+                    return vrProg;
+                }
+            }
+
             // Tier 5/6: Public Piped & Invidious mirrors fallback
-            ResolvedStream res = resolveViaPiped(videoId);
-            if (res == null) res = resolveViaInvidious(videoId);
+            ResolvedStream res = verifyAndMeasure(resolveViaPiped(videoId));
+            if (res == null) res = verifyAndMeasure(resolveViaInvidious(videoId));
             if (res != null) {
                 STREAM_CACHE.put(ck, res);
                 LAST_RESOLVED.put(videoId, res);
@@ -621,24 +630,64 @@ final class YtMusic {
         }
     }
 
-    /** Probes a tiny 1 KB slice at the midpoint of an adaptive stream to guarantee zero mid-stream HTTP 403! */
-    private static boolean verifyStreamPlayable(ResolvedStream rs) {
-        if (rs == null || rs.url == null || rs.url.isEmpty()) return false;
-        if (rs.progressive) return true;
+    /**
+     * Probes a tiny 1 KB slice at 85% of the stream (past YouTube's ~512KB-1MB PO-token gate!)
+     * so any stream that would 403 mid-song or at 5-10% download is rejected immediately.
+     * Also discovers exact total Content-Length from Content-Range when missing (e.g. itag 18).
+     */
+    private static ResolvedStream verifyAndMeasure(ResolvedStream rs) {
+        if (rs == null || rs.url == null || rs.url.isEmpty()) return null;
+        long knownLen = rs.contentLength;
+        long probeOff = knownLen > 200_000L ? (long) (knownLen * 0.85) : 1_500_000L;
+        long probeEnd = knownLen > 0 ? Math.min(knownLen - 1, probeOff + 1023L) : (probeOff + 1023L);
+        long[] discoveredLen = new long[]{knownLen};
+
+        if (!probeRange(rs.url, rs.userAgent, probeOff, probeEnd, discoveredLen)) {
+            // If file is smaller than 1.5MB and contentLength was unknown, fall back to probing offset 0
+            if (knownLen <= 0 && probeRange(rs.url, rs.userAgent, 0L, 1023L, discoveredLen)) {
+                long realLen = discoveredLen[0];
+                if (realLen > 200_000L) {
+                    long tailOff = (long) (realLen * 0.85);
+                    if (!probeRange(rs.url, rs.userAgent, tailOff, Math.min(realLen - 1, tailOff + 1023L), discoveredLen)) {
+                        return null;
+                    }
+                }
+            } else {
+                return null;
+            }
+        }
+        if (discoveredLen[0] > 0 && discoveredLen[0] != rs.contentLength) {
+            return new ResolvedStream(rs.url, rs.userAgent, rs.codec, rs.mimeType,
+                    rs.bitrateKbps, rs.sampleRate, rs.itag, rs.progressive,
+                    discoveredLen[0], rs.expiresAtMs);
+        }
+        return rs;
+    }
+
+    private static boolean probeRange(String url, String ua, long start, long end, long[] outTotal) {
         HttpURLConnection c = null;
         try {
-            long mid = rs.contentLength > 200_000L ? (rs.contentLength / 2L) : 1_200_000L;
-            long end = rs.contentLength > 0 ? Math.min(rs.contentLength - 1, mid + 1023L) : (mid + 1023L);
-            c = (HttpURLConnection) new URL(rs.url).openConnection();
+            c = (HttpURLConnection) new URL(url).openConnection();
             c.setInstanceFollowRedirects(true);
             c.setConnectTimeout(4500);
             c.setReadTimeout(4500);
-            c.setRequestProperty("User-Agent", rs.userAgent);
+            c.setRequestProperty("User-Agent", ua);
             c.setRequestProperty("Accept", "*/*");
             c.setRequestProperty("Accept-Encoding", "identity");
-            c.setRequestProperty("Range", "bytes=" + mid + "-" + end);
+            c.setRequestProperty("Range", "bytes=" + start + "-" + end);
             int code = c.getResponseCode();
-            return code == 200 || code == 206;
+            if (code == 200 || code == 206) {
+                String cr = c.getHeaderField("Content-Range");
+                if (cr != null) {
+                    int slash = cr.lastIndexOf('/');
+                    if (slash > 0 && slash + 1 < cr.length()) {
+                        long parsed = parseLongSafe(cr.substring(slash + 1).trim());
+                        if (parsed > 0) outTotal[0] = parsed;
+                    }
+                }
+                return true;
+            }
+            return false;
         } catch (Exception e) {
             return false;
         } finally {

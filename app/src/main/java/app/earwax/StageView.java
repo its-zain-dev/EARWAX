@@ -191,7 +191,14 @@ final class StageView extends View implements PlayerService.Listener {
         });
         removeCallbacks(tick);
         tickScheduled = false;
-        if (on) wakeLoop();
+        if (on) {
+            if ((bgBake == null || bgBake.isRecycled()) && w > 0 && h > 0) bakeBackdrop();
+            wakeLoop();
+        } else if (bgBake != null) {
+            // Free ~9 MB backdrop bitmap while app is hidden so heavy foreground games don't trigger LMK!
+            bgBake.recycle();
+            bgBake = null;
+        }
     }
 
     @Override public void onServiceUpdate() { wakeLoop(); }

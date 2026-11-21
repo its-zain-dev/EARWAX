@@ -98,47 +98,62 @@ final class Downloader {
                     MAIN.post(() -> cb.onDone(null, "STREAM UNAVAILABLE"));
                     return;
                 }
-                File dest = fileForMime(app, ytId, rs.mimeType);
 
                 long total = rs.contentLength;
                 long downloaded = 0L;
+                int activeItag = rs.itag;
+                String activeMime = rs.mimeType;
                 byte[] buf = new byte[32768];
                 int lastPct = 1;
 
-                try (FileOutputStream out = new FileOutputStream(tmp)) {
+                FileOutputStream out = new FileOutputStream(tmp);
+                try {
                     boolean done = false;
                     while (!done) {
-                        long start = downloaded;
-                        long end = total > 0
-                                ? Math.min(total - 1, start + CHUNK_SIZE - 1)
-                                : (start + CHUNK_SIZE - 1);
-                        if (total > 0 && start >= total) break;
+                        if (total > 0 && downloaded >= total) break;
 
-                        int chunkBytes = 0;
                         IOException chunkErr = null;
-
-                        for (int attempt = 0; attempt < 3; attempt++) {
+                        for (int attempt = 0; attempt < 4; attempt++) {
                             if (attempt >= 1) {
+                                try { Thread.sleep(350L * attempt); } catch (InterruptedException ignored) { }
                                 YtMusic.invalidateCache(ytId);
                                 YtMusic.ResolvedStream fresh = YtMusic.resolveAudioSync(ytId, true, quality);
                                 if (fresh != null && fresh.url != null && !fresh.url.isEmpty()) {
+                                    // If fallback switched to a different format/itag, restart file cleanly from byte 0!
+                                    if (downloaded > 0 && (fresh.itag != activeItag
+                                            || !String.valueOf(fresh.mimeType).equals(String.valueOf(activeMime)))) {
+                                        out.close();
+                                        out = new FileOutputStream(tmp, false);
+                                        downloaded = 0L;
+                                        lastPct = 1;
+                                    }
                                     rs = fresh;
+                                    activeItag = fresh.itag;
+                                    activeMime = fresh.mimeType;
                                     if (fresh.contentLength > 0) total = fresh.contentLength;
-                                    end = total > 0
-                                            ? Math.min(total - 1, start + CHUNK_SIZE - 1)
-                                            : (start + CHUNK_SIZE - 1);
                                 }
                             }
 
+                            long start = downloaded;
+                            long end = total > 0
+                                    ? Math.min(total - 1, start + CHUNK_SIZE - 1)
+                                    : (start + CHUNK_SIZE - 1);
+                            if (total > 0 && start >= total) {
+                                chunkErr = null;
+                                done = true;
+                                break;
+                            }
+
                             HttpURLConnection conn = null;
+                            int chunkBytes = 0;
                             try {
                                 boolean isGv = rs.url.contains("googlevideo.com");
                                 boolean useRangeQuery = isGv && rs.progressive && total > 0;
                                 String reqUrl = useRangeQuery ? YtMusic.withRangeParam(rs.url, start, end) : rs.url;
                                 conn = (HttpURLConnection) new URL(reqUrl).openConnection();
                                 conn.setInstanceFollowRedirects(true);
-                                conn.setConnectTimeout(10_000);
-                                conn.setReadTimeout(15_000);
+                                conn.setConnectTimeout(12_000);
+                                conn.setReadTimeout(18_000);
                                 conn.setRequestProperty("User-Agent", rs.userAgent);
                                 conn.setRequestProperty("Accept", "*/*");
                                 conn.setRequestProperty("Accept-Encoding", "identity");
@@ -152,7 +167,7 @@ final class Downloader {
                                     done = true;
                                     break;
                                 }
-                                if (code == 403 || code == 410) {
+                                if (code == 403 || code == 410 || code == 503) {
                                     chunkErr = new IOException("HTTP " + code);
                                     continue;
                                 }
@@ -170,7 +185,6 @@ final class Downloader {
                                 }
 
                                 long expected = (total > 0) ? (end - start + 1) : CHUNK_SIZE;
-                                chunkBytes = 0;
                                 try (InputStream in = conn.getInputStream()) {
                                     int n;
                                     while ((n = in.read(buf)) > 0) {
@@ -179,7 +193,7 @@ final class Downloader {
                                         downloaded += n;
                                         if (total > 0) {
                                             int pct = Math.max(1, Math.min(99, (int) ((downloaded * 100L) / total)));
-                                            if (pct - lastPct >= 4) {
+                                            if (pct - lastPct >= 2) {
                                                 lastPct = pct;
                                                 PROGRESS.put(ytId, pct);
                                                 notifyUi();
@@ -194,8 +208,8 @@ final class Downloader {
                                 break;
                             } catch (IOException e) {
                                 chunkErr = e;
-                                // If partial bytes were written inside this failed chunk, abort & fail cleanly
-                                if (chunkBytes > 0) throw e;
+                                // Note: `downloaded` already tracks exact bytes written to `out`,
+                                // so the next retry seamlessly resumes at `start = downloaded`!
                             } finally {
                                 if (conn != null) conn.disconnect();
                             }
@@ -205,7 +219,11 @@ final class Downloader {
                         if (total > 0 && downloaded >= total) done = true;
                     }
                     out.flush();
+                } finally {
+                    try { out.close(); } catch (Exception ignored) { }
                 }
+
+                File dest = fileForMime(app, ytId, activeMime);
 
                 if (tmp.length() < 4096) {
                     tmp.delete();

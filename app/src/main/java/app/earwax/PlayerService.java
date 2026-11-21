@@ -136,7 +136,7 @@ public final class PlayerService extends Service {
     private int viewers, recoveryAttempts;
     private long sleepEndMs = 0L;
     private float fadeScale = 1f;
-    private boolean shouldBePlaying, resumeOnFocusGain, hasFocus;
+    private boolean shouldBePlaying, resumeOnFocusGain, hasFocus, userClosed;
     private int lastKnownIdx = 0;
     private long lastKnownPosMs = 0L;
     private long lastCheckpointMs = 0L;
@@ -576,8 +576,8 @@ public final class PlayerService extends Service {
         };
 
         ms = new MediaSession.Builder(this, sessionPlayer).build();
-        ServiceCompat.startForeground(this, 1, Notif.build(this),
-                Build.VERSION.SDK_INT >= 29 ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK : 0);
+        if (nm != null) nm.cancel(2);
+        ensureForegroundOrNotify();
 
         // IMMEDIATELY restore complete saved queue + exact position before anything else!
         restoreSavedSession();
@@ -615,10 +615,25 @@ public final class PlayerService extends Service {
         onTrackChanged();
     }
 
+    private void ensureForegroundOrNotify() {
+        try {
+            ServiceCompat.startForeground(this, 1, Notif.build(this),
+                    Build.VERSION.SDK_INT >= 29 ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK : 0);
+            if (nm != null) nm.cancel(2);
+        } catch (Exception e) {
+            // On Android 12+ if OS restarted START_STICKY in background and blocked startForeground(),
+            // never crash! Post the interactive notification directly so the user can always tap to resume.
+            if (nm != null) {
+                try { nm.notify(1, Notif.build(this)); } catch (Exception ignored) { }
+            }
+        }
+    }
+
     @Override
     public int onStartCommand(Intent i, int flags, int id) {
         if (i == null) {
             // Android restarted our START_STICKY service after low-RAM kill/freeze!
+            ensureForegroundOrNotify();
             Prefs.PlaybackSnapshot snap = Prefs.loadQueueSnapshot(this);
             if (snap.wasPlaying && !queue.isEmpty()) {
                 playInternal();
@@ -626,21 +641,29 @@ public final class PlayerService extends Service {
             return START_STICKY;
         }
         String a = i.getAction();
+        if ("close".equals(a)) {
+            userClosed = true;
+            shouldBePlaying = false;
+            saveResumeNow(true);
+            pauseInternal(false);
+            closePopup();
+            releaseLocks();
+            if (nm != null) {
+                nm.cancel(1);
+                nm.cancel(2);
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        userClosed = false;
+        ensureForegroundOrNotify();
         if (a != null) {
             switch (a) {
                 case "prev": prev(); break;
                 case "play": toggle(); break;
                 case "next": next(); break;
                 case "popup": togglePopup(); break;
-                case "close":
-                    shouldBePlaying = false;
-                    saveResumeNow(true);
-                    pauseInternal(false);
-                    closePopup();
-                    releaseLocks();
-                    stopForeground(STOP_FOREGROUND_REMOVE);
-                    stopSelf();
-                    return START_NOT_STICKY;
             }
         }
         return START_STICKY;
@@ -650,9 +673,7 @@ public final class PlayerService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         // Swiping app away from Recents MUST NOT kill playing music or lose position!
         saveResumeNow(true);
-        if (!shouldBePlaying && (pl == null || !pl.isPlaying())) {
-            // If paused, keep state saved cleanly; if playing, keep running uninterrupted!
-        }
+        ensureForegroundOrNotify();
         super.onTaskRemoved(rootIntent);
     }
 
@@ -663,6 +684,10 @@ public final class PlayerService extends Service {
             // Shed thumbnail caches immediately so low-memory killer leaves audio service alive!
             Art.trimCache();
             saveResumeNow(false);
+        }
+        if (level >= TRIM_MEMORY_RUNNING_CRITICAL && !userClosed && nm != null) {
+            // Keep quick-resume notification alive if heavy foreground apps squeeze RAM
+            saveResumeNow(true);
         }
     }
 
@@ -678,6 +703,10 @@ public final class PlayerService extends Service {
     @Override
     public void onDestroy() {
         saveResumeNow(true);
+        if (!userClosed && nm != null && !queue.isEmpty()) {
+            // Non-foreground standby notification survives service destruction so user can pull down shade & resume!
+            try { nm.notify(2, Notif.buildStandby(this)); } catch (Exception ignored) { }
+        }
         I = null;
         h.removeCallbacksAndMessages(null);
         if (mediaObserver != null) {
@@ -767,13 +796,18 @@ public final class PlayerService extends Service {
         Prefs.audioQuality(this, q);
         YtMusic.setQuality(q);
         // Immediately switch active online YouTube Music playback to the newly selected quality!
+        // Replace the MediaItem so ExoPlayer creates a fresh container extractor (WebM/Opus <-> MP4/AAC) cleanly!
         Track cur = current();
         if (pl != null && cur != null && cur.isYouTube() && !isOffline(cur)) {
             int idx = Math.max(0, pl.getCurrentMediaItemIndex());
             long pos = Math.max(0L, pl.getCurrentPosition());
             boolean wasPlaying = shouldBePlaying || pl.isPlaying();
+            err = "";
+            recoveryAttempts = 0;
+            h.removeCallbacks(recoveryTask);
             YtMusic.invalidateCache(cur.ytId);
             dsp.triggerSmoothSwitch();
+            pl.replaceMediaItem(idx, toMediaItem(cur));
             pl.seekTo(idx, pos);
             pl.prepare();
             if (wasPlaying) pl.play();
@@ -1254,8 +1288,10 @@ public final class PlayerService extends Service {
             return;
         }
         err = "";
+        userClosed = false;
         shouldBePlaying = true;
         resumeOnFocusGain = false;
+        ensureForegroundOrNotify();
         requestFocus();
         acquireLocks();
         dsp.setDuck(1.0f);
