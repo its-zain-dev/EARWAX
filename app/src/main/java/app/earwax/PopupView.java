@@ -1,5 +1,8 @@
 package app.earwax;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -23,6 +26,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -74,6 +78,9 @@ final class PopupView extends View implements PlayerService.Listener {
     // Independent Wing Drawer Windows (zero dead-space hitblocking, zero cross-window lag!)
     private WingPanelView leftWingView, rightWingView;
     private WindowManager.LayoutParams leftWingLp, rightWingLp;
+    private ValueAnimator wingAnim;
+    private float wingProgress = 0f;
+    private boolean wingsAttached = false;
     private boolean drawersOpen = false;
     private int lastActiveLyricIdx = -1;
 
@@ -294,78 +301,111 @@ final class PopupView extends View implements PlayerService.Listener {
         wlp.gravity = Gravity.TOP | Gravity.START;
         wlp.x = x;
         wlp.y = y;
+        wlp.windowAnimations = 0;
         return wlp;
     }
 
-    private void attachWingsAnimated() {
-        detachWingsImmediate();
-        int[] m = computeWingMetrics();
-        leftWingView = new WingPanelView(sv, true);
-        rightWingView = new WingPanelView(sv, false);
-        leftWingLp = makeWingLp(m[0], m[2], m[3], m[4]);
-        rightWingLp = makeWingLp(m[1], m[2], m[3], m[4]);
+    private void invalidateWings() {
+        if (leftWingView != null) leftWingView.invalidate();
+        if (rightWingView != null) rightWingView.invalidate();
+    }
 
-        float camDist = 8000f * dm.density;
-        leftWingView.setCameraDistance(camDist);
-        rightWingView.setCameraDistance(camDist);
-        leftWingView.setPivotX(m[3]);
-        leftWingView.setPivotY(m[4] * 0.5f);
-        rightWingView.setPivotX(0f);
-        rightWingView.setPivotY(m[4] * 0.5f);
-
-        // GPU hardware-layer 3D unfold settling to EXACT rotationY=0f for 100% razor-sharp pixels!
-        leftWingView.setAlpha(0f);
-        leftWingView.setTranslationX(m[3] * 0.35f);
-        leftWingView.setRotationY(24f);
-        rightWingView.setAlpha(0f);
-        rightWingView.setTranslationX(-m[3] * 0.35f);
-        rightWingView.setRotationY(-24f);
-
-        try {
-            wm.addView(leftWingView, leftWingLp);
-            wm.addView(rightWingView, rightWingLp);
-            DecelerateInterpolator interp = new DecelerateInterpolator(2.2f);
-            leftWingView.animate().alpha(1f).translationX(0f).rotationY(0f).setDuration(190).setInterpolator(interp).start();
-            rightWingView.animate().alpha(1f).translationX(0f).rotationY(0f).setDuration(190).setInterpolator(interp).start();
-        } catch (Exception e) {
-            detachWingsImmediate();
-            drawersOpen = false;
+    private void animateWingsTo(final float target, long baseDurationMs, final boolean detachOnEnd) {
+        if (wingAnim != null) {
+            ValueAnimator prev = wingAnim;
+            wingAnim = null;
+            prev.cancel();
         }
+        float start = wingProgress;
+        float dist = Math.abs(target - start);
+        if (dist < 0.005f) {
+            wingProgress = target;
+            invalidateWings();
+            if (detachOnEnd && !drawersOpen) detachWingsImmediate();
+            return;
+        }
+        long dur = Math.max(60L, (long) (baseDurationMs * dist));
+        final ValueAnimator anim = ValueAnimator.ofFloat(start, target);
+        anim.setDuration(dur);
+        anim.setInterpolator(detachOnEnd ? new AccelerateInterpolator(1.5f) : new DecelerateInterpolator(2.2f));
+        anim.addUpdateListener(a -> {
+            wingProgress = (Float) a.getAnimatedValue();
+            invalidateWings();
+        });
+        anim.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                if (wingAnim != anim) return;
+                wingAnim = null;
+                wingProgress = target;
+                invalidateWings();
+                if (detachOnEnd && !drawersOpen) {
+                    detachWingsImmediate();
+                }
+            }
+        });
+        wingAnim = anim;
+        anim.start();
+    }
+
+    private void attachWingsAnimated() {
+        if (!wingsAttached || leftWingView == null || rightWingView == null) {
+            detachWingsImmediate();
+            int[] m = computeWingMetrics();
+            leftWingView = new WingPanelView(sv, true);
+            rightWingView = new WingPanelView(sv, false);
+            leftWingLp = makeWingLp(m[0], m[2], m[3], m[4]);
+            rightWingLp = makeWingLp(m[1], m[2], m[3], m[4]);
+            wingProgress = 0f;
+            try {
+                wm.addView(leftWingView, leftWingLp);
+                wm.addView(rightWingView, rightWingLp);
+                wingsAttached = true;
+            } catch (Exception e) {
+                detachWingsImmediate();
+                drawersOpen = false;
+                return;
+            }
+        } else {
+            syncWingPositions();
+        }
+        animateWingsTo(1f, 220L, false);
     }
 
     private void detachWingsAnimated() {
-        final WingPanelView lw = leftWingView, rw = rightWingView;
-        leftWingView = null;
-        rightWingView = null;
-        leftWingLp = null;
-        rightWingLp = null;
-        if (lw != null) {
-            lw.animate().alpha(0f).translationX(lw.getWidth() * 0.25f).rotationY(18f).setDuration(130)
-                    .withEndAction(() -> { try { wm.removeView(lw); } catch (Exception ignored) { } }).start();
+        if (!wingsAttached || leftWingView == null || rightWingView == null) {
+            detachWingsImmediate();
+            return;
         }
-        if (rw != null) {
-            rw.animate().alpha(0f).translationX(-rw.getWidth() * 0.25f).rotationY(-18f).setDuration(130)
-                    .withEndAction(() -> { try { wm.removeView(rw); } catch (Exception ignored) { } }).start();
-        }
+        animateWingsTo(0f, 160L, true);
     }
 
     private void detachWingsImmediate() {
+        if (wingAnim != null) {
+            ValueAnimator prev = wingAnim;
+            wingAnim = null;
+            prev.cancel();
+        }
+        wingProgress = 0f;
+        wingsAttached = false;
         if (leftWingView != null) {
-            leftWingView.animate().cancel();
-            try { wm.removeView(leftWingView); } catch (Exception ignored) { }
+            try { wm.removeViewImmediate(leftWingView); } catch (Exception e) {
+                try { wm.removeView(leftWingView); } catch (Exception ignored) { }
+            }
             leftWingView = null;
             leftWingLp = null;
         }
         if (rightWingView != null) {
-            rightWingView.animate().cancel();
-            try { wm.removeView(rightWingView); } catch (Exception ignored) { }
+            try { wm.removeViewImmediate(rightWingView); } catch (Exception e) {
+                try { wm.removeView(rightWingView); } catch (Exception ignored) { }
+            }
             rightWingView = null;
             rightWingLp = null;
         }
     }
 
     private void syncWingPositions() {
-        if (!drawersOpen || leftWingView == null || rightWingView == null) return;
+        if (!wingsAttached || leftWingView == null || rightWingView == null) return;
         int[] m = computeWingMetrics();
         leftWingLp.x = m[0]; leftWingLp.y = m[2]; leftWingLp.width = m[3]; leftWingLp.height = m[4];
         rightWingLp.x = m[1]; rightWingLp.y = m[2]; rightWingLp.width = m[3]; rightWingLp.height = m[4];
@@ -926,6 +966,22 @@ final class PopupView extends View implements PlayerService.Listener {
             int vw = getWidth(), vh = getHeight();
             if (vw <= 0 || vh <= 0) return;
 
+            float p = wingProgress;
+            if (p <= 0.004f) return;
+
+            int saveLayerCount = -1;
+            if (p < 0.996f) {
+                int alpha = Math.max(0, Math.min(255, (int) (p * 255f)));
+                saveLayerCount = c.saveLayerAlpha(0f, 0f, vw, vh, alpha);
+                float sx = 0.62f + 0.38f * p;
+                float sy = 0.88f + 0.12f * p;
+                float pivotX = isLeft ? vw : 0f;
+                float pivotY = vh * 0.5f;
+                float ty = -vh * 0.04f * (1f - p);
+                c.translate(0f, ty);
+                c.scale(sx, sy, pivotX, pivotY);
+            }
+
             Skin.resetPaints();
             wQ.setStyle(Paint.Style.FILL);
             wS.setStyle(Paint.Style.STROKE);
@@ -955,6 +1011,10 @@ final class PopupView extends View implements PlayerService.Listener {
             if (isLeft) drawLeftContent(c, sl, st, sr, sb, scX, scY, sc);
             else drawRightContent(c, sl, st, sr, sb, scX, scY, sc, x);
             c.restore();
+
+            if (saveLayerCount >= 0) {
+                c.restoreToCount(saveLayerCount);
+            }
         }
 
         private float stroke(float designPx, float sc) {
@@ -1301,6 +1361,7 @@ final class PopupView extends View implements PlayerService.Listener {
 
         @Override
         public boolean onTouchEvent(MotionEvent e) {
+            if (!drawersOpen || wingProgress < 0.5f) return false;
             int vw = getWidth(), vh = getHeight();
             if (vw <= 0 || vh <= 0) return false;
             float vx = e.getX(), vy = e.getY();
